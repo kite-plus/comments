@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kite-plus/comments/internal/crypt"
+	"github.com/kite-plus/comments/internal/idp"
 	"github.com/kite-plus/comments/internal/mailer"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/store"
@@ -185,5 +186,43 @@ func TestImportedHomepagesAreWebAddresses(t *testing.T) {
 		if got := webURL(in); got != want {
 			t.Errorf("webURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestReconcileRetriesASubjectItCannotRead(t *testing.T) {
+	w, _, st := setup(t)
+	ctx := context.Background()
+	u := user(t, w, "sub-1", "Ann", "ann@example.com")
+	var mu sync.Mutex
+	readable := false
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.URL.Path == "/admin/v1/events/_search":
+			_, _ = rw.Write([]byte(`{"events":[{"aggregate":{"id":"sub-1"},"sequence":"4","creationDate":"2026-10-11T06:00:00Z","type":{"type":"user.deactivated"}}]}`))
+		case !readable:
+			rw.WriteHeader(http.StatusBadGateway)
+		default:
+			_, _ = rw.Write([]byte(`{"user":{"state":"USER_STATE_INACTIVE"}}`))
+		}
+	}))
+	defer srv.Close()
+	w.IDP = &idp.Client{BaseURL: srv.URL, Token: "t"}
+	w.Issuer = "https://id.example"
+	w.Reconcile(ctx)
+	if x, _ := st.User(ctx, u.ID); x.SuspendedAt != nil {
+		t.Fatal("acted without reading the user")
+	}
+	cursor, _ := st.IDPCursor(ctx)
+	if cursor != "2026-10-11T06:00:00Z" {
+		t.Errorf("cursor moved past the unread event: %q", cursor)
+	}
+	mu.Lock()
+	readable = true
+	mu.Unlock()
+	w.Reconcile(ctx)
+	if x, _ := st.User(ctx, u.ID); x.SuspendedAt == nil {
+		t.Error("the next run did not retry the event")
 	}
 }
