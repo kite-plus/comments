@@ -318,8 +318,9 @@ func (s *Server) authorJSON(site model.Site, cm model.Comment) gin.H {
 	if cm.AuthorKind == model.AuthorFormerUser {
 		a["name"] = ""
 	}
-	if cm.AuthorURL != "" && cm.AuthorKind != model.AuthorFormerUser {
-		a["url"] = cm.AuthorURL
+	if web := cm.AuthorURL; web != "" && cm.AuthorKind != model.AuthorFormerUser &&
+		(strings.HasPrefix(web, "https://") || strings.HasPrefix(web, "http://")) {
+		a["url"] = web
 	}
 	if cm.AuthorKind == model.AuthorUser {
 		a["id"] = cm.AuthorPublicID

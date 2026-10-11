@@ -176,3 +176,14 @@ func TestRecheckDropsAnOriginAfterTheGrace(t *testing.T) {
 		t.Errorf("after the grace = %+v %s", got.Origins[0], got.Status)
 	}
 }
+
+func TestImportedHomepagesAreWebAddresses(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://a.example/me": "https://a.example/me", " http://a.example ": "http://a.example",
+		"javascript:alert(1)": "", "data:text/html,x": "", "//a.example": "", "": "",
+	} {
+		if got := webURL(in); got != want {
+			t.Errorf("webURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

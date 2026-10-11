@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
+	"strings"
 
 	"github.com/kite-plus/comments/internal/crypt"
 	"github.com/kite-plus/comments/internal/importer"
@@ -65,7 +67,7 @@ func (w *Worker) runImport(ctx context.Context, im store.Import) (map[string]any
 	for _, c := range plan.Comments {
 		ic := store.ImportComment{SourceID: c.SourceID, ParentSourceID: c.ParentSourceID, RootSourceID: c.RootSourceID,
 			ThreadKey: c.Key, AuthorKind: importer.AuthorKind(c.Comment), AuthorName: importer.AuthorName(c.Comment),
-			AuthorURL: limit(c.AuthorURL, 300), AuthorRef: limit(c.AuthorRef, 100), BodyMD: limit(c.BodyMD, 10000),
+			AuthorURL: webURL(c.AuthorURL), AuthorRef: limit(c.AuthorRef, 100), BodyMD: limit(c.BodyMD, 10000),
 			RenderVersion: markup.Version, Status: c.Status, Pinned: c.Pinned, CreatedAt: c.CreatedAt, EditedAt: c.EditedAt}
 		ic.BodyHTML = markup.Render(ic.BodyMD).HTML
 		if c.Email != "" {
@@ -80,6 +82,17 @@ func (w *Worker) runImport(ctx context.Context, im store.Import) (map[string]any
 	out["inserted"], out["skipped"], out["failed"] = st.Inserted, st.Skipped, st.Failed+len(r.Failures)
 	out["unmatched"] = len(r.Comments) - len(plan.Comments)
 	return out, ""
+}
+
+// webURL keeps an imported homepage only when it is an http or https
+// address that fits the column; other systems did not always check.
+func webURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || len([]rune(raw)) > 300 {
+		return ""
+	}
+	return raw
 }
 
 func limit(s string, n int) string {
