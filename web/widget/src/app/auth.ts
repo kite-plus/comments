@@ -1,7 +1,7 @@
 // The widget's side of the login protocol (login.md section 4): a verifier
 // prepared before the click, the popup handshake, polling the exchange, and
 // the full-page redirect fallback.
-import { call, setToken, storage, type Viewer } from "./api";
+import { call, randomToken, setToken, storage, type Viewer } from "./api";
 import { inAppBrowser, KC } from "../lib";
 
 const b64url = (b: ArrayBuffer | Uint8Array) =>
@@ -57,7 +57,8 @@ export class Login {
     if (!this.pair) return;
     if (inAppBrowser(navigator.userAgent)) return this.redirect();
     this.begun = false;
-    this.popup = window.open(this.o.origin + "/auth/popup", "kite-comments-login", "popup,width=480,height=720");
+    // A fresh name each time, so no other page can guess and target it.
+    this.popup = window.open(this.o.origin + "/auth/popup", "kc-login-" + randomToken(12), "popup,width=480,height=720");
     if (!this.popup) return this.o.onState("fallback");
     this.o.onState("waiting");
     clearTimeout(this.readyTimer);

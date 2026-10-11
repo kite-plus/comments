@@ -83,6 +83,27 @@ export const storage = {
   },
 };
 
+/** A random URL-safe token, 43 characters for the default 32 bytes. */
+export function randomToken(bytes = 32): string {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(bytes))))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
+ * This browser's guest token: reply mail to a guest address needs consent
+ * confirmed from the same browser (moderation.md section 6.1).
+ */
+export function guestToken(): string {
+  let t = storage.get("kc:gt");
+  if (!t || !/^[A-Za-z0-9_-]{43}$/.test(t)) {
+    t = randomToken();
+    storage.set("kc:gt", t);
+  }
+  return t;
+}
+
 export function setToken(t: string | null) {
   token = t;
 }

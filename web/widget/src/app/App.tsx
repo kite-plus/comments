@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { ApiError, call, q, read, setToken, storage, type Comment, type Page, type Viewer } from "./api";
+import { ApiError, call, guestToken, q, read, setToken, storage, type Comment, type Page, type Viewer } from "./api";
 import { Login, type LoginState } from "./auth";
 import { relative, strings, type Strings } from "./i18n";
 import { KC } from "../lib";
@@ -446,7 +446,7 @@ function GuestComposer({ ctx, onDone, onCancel, parent }: { ctx: Ctx; onDone: (c
       setBusy(s.posting);
       const r = await call<Comment>("POST", "/api/v1/comments", {
         site: d.site, key: d.key, url: d.url, title: d.title, published: d.published, parent_id: parent?.id, body, lang: d.lang,
-        guest: { name: f.name, email: f.email, url: f.url, notify: f.notify, website: f.website }, pow,
+        guest: { name: f.name, email: f.email, url: f.url, notify: f.notify, website: f.website, token: guestToken() }, pow,
       });
       storage.set("kc:g", JSON.stringify({ name: f.name, email: f.email, url: f.url }));
       setBody("");
