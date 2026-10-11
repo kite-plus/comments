@@ -1,6 +1,20 @@
 /bin/
 /dist/
+/coverage.out
+/.go.mod.check
+/.go.sum.check
 .env
+/deploy/.env
 node_modules/
-coverage.out
 .DS_Store
+
+# Frontend builds are embedded at build time; only the placeholders that
+# keep the Go build working are tracked.
+/web/widget/dist/*
+!/web/widget/dist/.gitkeep
+/web/console/dist/*
+!/web/console/dist/.gitkeep
+
+/e2e/test-results/
+/e2e/playwright-report/
+/.claude/

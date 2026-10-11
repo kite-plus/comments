@@ -1,0 +1,14 @@
+# Only source belongs in the build context.
+.git
+.github
+.golangci.yml
+bin/
+coverage.out
+docs/
+testdata/
+e2e/
+deploy/.env
+deploy/.env.dev
+**/node_modules
+*.md
+.DS_Store

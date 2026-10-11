@@ -1,0 +1,226 @@
+avatars.bytes bytea
+avatars.content_type text
+avatars.etag text
+avatars.fetched_at timestamp with time zone
+avatars.user_id bigint
+bans.created_at timestamp with time zone
+bans.created_by bigint
+bans.email_hmac bytea
+bans.expires_at timestamp with time zone
+bans.id bigint
+bans.ip_hmac bytea
+bans.reason text
+bans.site_id bigint
+bans.user_id bigint
+comment_revisions.body_md text
+comment_revisions.comment_id bigint
+comment_revisions.revised_at timestamp with time zone
+comments.author_email_enc bytea
+comments.author_email_hmac bytea
+comments.author_kind text
+comments.author_name text
+comments.author_ref text
+comments.author_url text
+comments.author_user_id bigint
+comments.body_html text
+comments.body_md text
+comments.created_at timestamp with time zone
+comments.edited_at timestamp with time zone
+comments.id bigint
+comments.ip_hmac bytea
+comments.notify_email boolean
+comments.parent_id bigint
+comments.pinned_at timestamp with time zone
+comments.published_at timestamp with time zone
+comments.render_version smallint
+comments.root_id bigint
+comments.site_id bigint
+comments.source text
+comments.source_id text
+comments.status text
+comments.thread_id bigint
+comments.updated_at timestamp with time zone
+console_sessions.created_at timestamp with time zone
+console_sessions.expires_at timestamp with time zone
+console_sessions.idp_sid text
+console_sessions.token_hash bytea
+console_sessions.user_id bigint
+email_claims.claimed_count integer
+email_claims.created_at timestamp with time zone
+email_claims.email_hmac bytea
+email_claims.expires_at timestamp with time zone
+email_claims.id bigint
+email_claims.token_hash bytea
+email_claims.user_id bigint
+email_claims.verified_at timestamp with time zone
+guest_emails.confirm_sent_at timestamp with time zone
+guest_emails.confirm_token_hash bytea
+guest_emails.confirmed_at timestamp with time zone
+guest_emails.created_at timestamp with time zone
+guest_emails.email_enc bytea
+guest_emails.email_hmac bytea
+guest_emails.locale text
+guest_emails.opted_out_at timestamp with time zone
+idp_events.event_id text
+idp_events.kind text
+idp_events.received_at timestamp with time zone
+idp_sync.cursor text
+idp_sync.id smallint
+idp_sync.synced_at timestamp with time zone
+imports.created_at timestamp with time zone
+imports.created_by bigint
+imports.error text
+imports.file bytea
+imports.finished_at timestamp with time zone
+imports.format text
+imports.id bigint
+imports.mapping jsonb
+imports.site_id bigint
+imports.stats jsonb
+imports.status text
+login_transactions.authenticated_at timestamp with time zone
+login_transactions.binder_hash bytea
+login_transactions.challenge bytea
+login_transactions.confirmed_at timestamp with time zone
+login_transactions.created_at timestamp with time zone
+login_transactions.expires_at timestamp with time zone
+login_transactions.id bigint
+login_transactions.idp_sid text
+login_transactions.mode text
+login_transactions.oidc_nonce text
+login_transactions.pkce_verifier text
+login_transactions.redeemed_at timestamp with time zone
+login_transactions.return_to text
+login_transactions.site_id bigint
+login_transactions.state_hash bytea
+login_transactions.status text
+login_transactions.user_id bigint
+moderation_events.action text
+moderation_events.actor_user_id bigint
+moderation_events.comment_id bigint
+moderation_events.created_at timestamp with time zone
+moderation_events.detail jsonb
+moderation_events.id bigint
+moderation_events.site_id bigint
+notifications.comment_id bigint
+notifications.created_at timestamp with time zone
+notifications.emailed_at timestamp with time zone
+notifications.id bigint
+notifications.kind text
+notifications.read_at timestamp with time zone
+notifications.user_id bigint
+outbox.attempts smallint
+outbox.coalesce_key text
+outbox.created_at timestamp with time zone
+outbox.id bigint
+outbox.kind text
+outbox.last_error text
+outbox.locale text
+outbox.next_attempt_at timestamp with time zone
+outbox.payload jsonb
+outbox.sent_at timestamp with time zone
+outbox.status text
+outbox.to_enc bytea
+pow_spent.challenge_id bytea
+pow_spent.expires_at timestamp with time zone
+reports.comment_id bigint
+reports.created_at timestamp with time zone
+reports.id bigint
+reports.note text
+reports.reason text
+reports.reporter_user_id bigint
+reports.resolved_at timestamp with time zone
+reports.resolved_by bigint
+reports.site_id bigint
+reports.status text
+site_authors.created_at timestamp with time zone
+site_authors.public_id uuid
+site_authors.site_id bigint
+site_authors.user_id bigint
+site_members.created_at timestamp with time zone
+site_members.last_notified_at timestamp with time zone
+site_members.role text
+site_members.site_id bigint
+site_members.user_id bigint
+site_origins.created_at timestamp with time zone
+site_origins.failing_since timestamp with time zone
+site_origins.is_primary boolean
+site_origins.last_checked_at timestamp with time zone
+site_origins.origin text
+site_origins.proof_hash bytea
+site_origins.site_id bigint
+site_origins.verified_at timestamp with time zone
+site_sessions.client_label text
+site_sessions.created_at timestamp with time zone
+site_sessions.created_via text
+site_sessions.expires_at timestamp with time zone
+site_sessions.id bigint
+site_sessions.idp_sid text
+site_sessions.last_used_at timestamp with time zone
+site_sessions.public_id uuid
+site_sessions.site_id bigint
+site_sessions.token_hash bytea
+site_sessions.user_id bigint
+site_verifications.created_at timestamp with time zone
+site_verifications.created_by bigint
+site_verifications.expires_at timestamp with time zone
+site_verifications.id bigint
+site_verifications.last_error text
+site_verifications.site_id bigint
+site_verifications.token_hash bytea
+sites.allow_localhost boolean
+sites.approved_at timestamp with time zone
+sites.blocked_words ARRAY
+sites.close_after_days integer
+sites.created_at timestamp with time zone
+sites.created_by bigint
+sites.deleted_at timestamp with time zone
+sites.guest_policy text
+sites.id bigint
+sites.member_policy text
+sites.name text
+sites.owner_notify text
+sites.public_id uuid
+sites.query_keys ARRAY
+sites.sort_order text
+sites.status text
+sites.status_note text
+sites.updated_at timestamp with time zone
+sites.verified_at timestamp with time zone
+spam_domains.created_at timestamp with time zone
+spam_domains.created_by bigint
+spam_domains.domain text
+thread_mutes.created_at timestamp with time zone
+thread_mutes.thread_id bigint
+thread_mutes.user_id bigint
+threads.comment_count integer
+threads.created_at timestamp with time zone
+threads.id bigint
+threads.last_comment_at timestamp with time zone
+threads.locked_at timestamp with time zone
+threads.page_key text
+threads.page_published_at timestamp with time zone
+threads.site_id bigint
+threads.title text
+threads.updated_at timestamp with time zone
+threads.url text
+user_identities.issuer text
+user_identities.linked_at timestamp with time zone
+user_identities.subject text
+user_identities.user_id bigint
+users.avatar_kind text
+users.created_at timestamp with time zone
+users.display_name text
+users.email_enc bytea
+users.email_hmac bytea
+users.homepage_url text
+users.id bigint
+users.is_platform_admin boolean
+users.last_login_at timestamp with time zone
+users.locale text
+users.notify_replies boolean
+users.on_account_delete text
+users.public_id uuid
+users.suspend_reason text
+users.suspended_at timestamp with time zone
+users.updated_at timestamp with time zone

@@ -1,0 +1,271 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/kite-plus/comments/internal/importer"
+	"github.com/kite-plus/comments/internal/model"
+	"github.com/kite-plus/comments/internal/store"
+)
+
+// importSite describes the site for import planning: every origin it has
+// registered counts as its own.
+func importSite(site model.Site) importer.Site {
+	var origins []string
+	for _, o := range site.Origins {
+		origins = append(origins, o.Origin)
+	}
+	return importer.Site{Origins: origins, Primary: site.PrimaryOrigin(), QueryKeys: site.QueryKeys}
+}
+
+func importJSON(im store.Import) gin.H {
+	return gin.H{"id": strconv.FormatInt(im.ID, 10), "format": im.Format, "status": im.Status,
+		"mapping": json.RawMessage(im.Mapping), "stats": json.RawMessage(im.Stats), "error": im.Error,
+		"created_at": im.CreatedAt.UTC(), "finished_at": timeOrNil(im.FinishedAt)}
+}
+
+// preview parses an import's file with a mapping and stores the summary.
+func (s *Server) previewImport(c *gin.Context, site model.Site, id int64, format string, m importer.Mapping) bool {
+	file, err := s.Store.ImportFile(c.Request.Context(), id)
+	if err != nil {
+		s.storeError(c, err)
+		return false
+	}
+	mapping, _ := json.Marshal(m)
+	r, err := importer.Parse(format, file)
+	if err != nil {
+		if err := s.Store.SetImportPreview(c.Request.Context(), id, mapping, []byte("{}"), err.Error()); err != nil {
+			s.storeError(c, err)
+			return false
+		}
+		s.fail(c, http.StatusUnprocessableEntity, codeImportInvalid)
+		return false
+	}
+	_, sum := importer.MakePlan(r, m, importSite(site))
+	stats, _ := json.Marshal(gin.H{"preview": sum})
+	if err := s.Store.SetImportPreview(c.Request.Context(), id, mapping, stats, ""); err != nil {
+		s.storeError(c, err)
+		return false
+	}
+	return true
+}
+
+// uploadImport is POST /api/v1/sites/{site}/imports (multipart: format,
+// file). The response is the preview.
+func (s *Server) uploadImport(c *gin.Context) {
+	format := c.PostForm("format")
+	if !slices.Contains(importer.Formats, format) {
+		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	file, ok := readUpload(c)
+	if !ok {
+		s.fail(c, http.StatusBadRequest, codeImportInvalid)
+		return
+	}
+	site := currentSite(c)
+	id, err := s.Store.CreateImport(c.Request.Context(), site.ID, format, file, currentUser(c).ID)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	if !s.previewImport(c, site, id, format, importer.Mapping{}) {
+		return
+	}
+	im, err := s.Store.Import(c.Request.Context(), site.ID, id)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	private(c, http.StatusCreated, importJSON(im))
+}
+
+func (s *Server) currentImport(c *gin.Context) (store.Import, bool) {
+	id, ok := s.idParam(c, "id")
+	if !ok {
+		return store.Import{}, false
+	}
+	im, err := s.Store.Import(c.Request.Context(), currentSite(c).ID, id)
+	if err != nil {
+		s.storeError(c, err)
+		return im, false
+	}
+	return im, true
+}
+
+// getImport is GET /api/v1/sites/{site}/imports/{id}.
+func (s *Server) getImport(c *gin.Context) {
+	im, ok := s.currentImport(c)
+	if ok {
+		private(c, http.StatusOK, importJSON(im))
+	}
+}
+
+// setImportMapping is PUT /api/v1/sites/{site}/imports/{id}/mapping; the
+// preview is made again with it.
+func (s *Server) setImportMapping(c *gin.Context) {
+	im, ok := s.currentImport(c)
+	if !ok {
+		return
+	}
+	var m importer.Mapping
+	if !s.bindJSON(c, &m) {
+		return
+	}
+	if m.WordPressKeys != "" && m.WordPressKeys != "url" && m.WordPressKeys != "post_id" || len(m.Rewrites) > 20 {
+		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	if m.Origin != "" {
+		o, ok := s.siteOrigin(m.Origin)
+		if !ok {
+			s.fail(c, http.StatusBadRequest, codeInvalidRequest)
+			return
+		}
+		m.Origin = o
+	}
+	if im.Status != "uploaded" && im.Status != "previewed" {
+		s.fail(c, http.StatusConflict, codeConflict)
+		return
+	}
+	if !s.previewImport(c, currentSite(c), im.ID, im.Format, m) {
+		return
+	}
+	im, _ = s.Store.Import(c.Request.Context(), im.SiteID, im.ID)
+	private(c, http.StatusOK, importJSON(im))
+}
+
+// runImport is POST /api/v1/sites/{site}/imports/{id}/run; the worker does
+// the work.
+func (s *Server) runImport(c *gin.Context) {
+	im, ok := s.currentImport(c)
+	if !ok {
+		return
+	}
+	if err := s.Store.StartImport(c.Request.Context(), im.SiteID, im.ID); err != nil {
+		s.fail(c, http.StatusConflict, codeConflict)
+		return
+	}
+	im, _ = s.Store.Import(c.Request.Context(), im.SiteID, im.ID)
+	private(c, http.StatusAccepted, importJSON(im))
+}
+
+// exportSite is GET /api/v1/sites/{site}/export?format=json|artrans
+// (sites.md section 8; the JSON format is docs/export-format.md).
+func (s *Server) exportSite(c *gin.Context) {
+	site := currentSite(c)
+	format := c.DefaultQuery("format", "json")
+	if format != "json" && format != "artrans" {
+		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	threads, comments, err := s.Store.ExportSite(c.Request.Context(), site.ID)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	emails := map[int64]string{}
+	for _, cm := range comments {
+		if cm.EmailEnc != nil {
+			if e, err := s.Keys.Decrypt(cm.EmailEnc); err == nil {
+				emails[cm.ID] = e
+			}
+		}
+	}
+	name := "kite-comments-" + site.PublicID[:8] + "-" + s.Now().UTC().Format("20060102")
+	var body any
+	if format == "json" {
+		body = exportJSON(site, threads, comments, emails, s.Now())
+		name += ".json"
+	} else {
+		body = exportArtrans(site, threads, comments, emails)
+		name += ".artrans.json"
+	}
+	c.Header("Content-Disposition", `attachment; filename="`+name+`"`)
+	private(c, http.StatusOK, body)
+}
+
+func exportJSON(site model.Site, threads []store.ExportThread, comments []store.ExportComment, emails map[int64]string, now time.Time) gin.H {
+	ts := make([]gin.H, 0, len(threads))
+	for _, t := range threads {
+		ts = append(ts, gin.H{"id": strconv.FormatInt(t.ID, 10), "key": t.Key, "url": t.URL, "title": t.Title,
+			"published_at": timeOrNil(t.PagePublishedAt), "locked": t.LockedAt != nil, "created_at": t.CreatedAt.UTC()})
+	}
+	cs := make([]gin.H, 0, len(comments))
+	for _, cm := range comments {
+		author := gin.H{"kind": cm.AuthorKind, "name": cm.AuthorName}
+		if cm.AuthorKind == model.AuthorUser {
+			author["id"] = cm.AuthorID
+		}
+		if cm.AuthorURL != "" {
+			author["url"] = cm.AuthorURL
+		}
+		if cm.AuthorRef != "" {
+			author["ref"] = cm.AuthorRef
+		}
+		if e, ok := emails[cm.ID]; ok {
+			author["email"] = e
+		}
+		var source any
+		if cm.Source != "native" {
+			source = gin.H{"system": cm.Source, "id": cm.SourceID}
+		}
+		cs = append(cs, gin.H{"id": strconv.FormatInt(cm.ID, 10), "thread_id": strconv.FormatInt(cm.ThreadID, 10),
+			"parent_id": idString(cm.ParentID), "root_id": idString(cm.RootID), "author": author,
+			"body": gin.H{"format": "markdown", "source": cm.BodyMD}, "status": cm.Status, "pinned": cm.Pinned,
+			"created_at": cm.CreatedAt.UTC(), "edited_at": timeOrNil(cm.EditedAt), "published_at": timeOrNil(cm.PublishedAt),
+			"source": source})
+	}
+	origins := []string{}
+	for _, o := range site.Origins {
+		origins = append(origins, o.Origin)
+	}
+	return gin.H{"format": "kite-comments", "version": 1, "exported_at": now.UTC(),
+		"site": gin.H{"id": site.PublicID, "name": site.Name, "origins": origins}, "threads": ts, "comments": cs}
+}
+
+// exportArtrans writes Artalk's interchange format: an array of objects
+// whose fields are all strings. It has no version or formal spec.
+func exportArtrans(site model.Site, threads []store.ExportThread, comments []store.ExportComment, emails map[int64]string) []map[string]string {
+	byID := map[int64]store.ExportThread{}
+	for _, t := range threads {
+		byID[t.ID] = t
+	}
+	var urls []string
+	for _, o := range site.Origins {
+		urls = append(urls, o.Origin)
+	}
+	out := []map[string]string{}
+	for _, cm := range comments {
+		if cm.Status == model.StatusDeleted || cm.Status == model.StatusSpam {
+			continue
+		}
+		t := byID[cm.ThreadID]
+		rid := "0"
+		if cm.ParentID != nil {
+			rid = strconv.FormatInt(*cm.ParentID, 10)
+		}
+		name := cm.AuthorName
+		if name == "" {
+			name = "匿名"
+		}
+		date := cm.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+		out = append(out, map[string]string{
+			"id": strconv.FormatInt(cm.ID, 10), "rid": rid, "content": cm.BodyMD, "ua": "", "ip": "",
+			"is_collapsed": "false", "is_pending": strconv.FormatBool(cm.Status != model.StatusPublished),
+			"is_pinned": strconv.FormatBool(cm.Pinned), "vote_up": "0", "vote_down": "0",
+			"date": date, "created_at": date, "updated_at": date,
+			"nick": name, "email": emails[cm.ID], "link": cm.AuthorURL, "password": "", "badge_name": "", "badge_color": "",
+			"page_key": t.URL, "page_title": t.Title, "page_admin_only": "false",
+			"site_name": site.Name, "site_urls": strings.Join(urls, ","),
+		})
+	}
+	return out
+}

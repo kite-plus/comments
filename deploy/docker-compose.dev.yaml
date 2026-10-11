@@ -1,0 +1,25 @@
+# PostgreSQL for local development and integration tests. Port 5434 keeps
+# clear of Explore's 5433 and a PostgreSQL already running on this machine;
+# the project name keeps the volume apart from other checkouts' deploy/
+# directories.
+name: kite-comments-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: comments
+      POSTGRES_PASSWORD: comments
+      POSTGRES_DB: comments
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - comments-dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "comments"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  comments-dev-db:

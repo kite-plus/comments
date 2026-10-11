@@ -1,0 +1,68 @@
+# The comment service in production, from the published image: PostgreSQL,
+# a one-off migration, the HTTP server and the worker. It shares the
+# reverse proxy with the identity service (docs/design/architecture.md
+# section 9); deploy/Caddyfile is the site block for that proxy. Put this
+# file and .env (copied from .env.example) in one directory on the server
+# and run `docker compose up -d`.
+name: comments
+
+x-backend: &backend
+  image: ghcr.io/kite-plus/comments:${COMMENTS_VERSION:-latest}
+  env_file: .env
+  environment:
+    COMMENTS_DATABASE_URL: postgres://comments:${POSTGRES_PASSWORD}@postgres:5432/comments?sslmode=disable
+    # The reverse proxy reaches serve from this network; trusting it lets
+    # the rate limits see the reader's address rather than the proxy's.
+    COMMENTS_TRUSTED_PROXIES: ${COMMENTS_TRUSTED_PROXIES:-10.90.0.0/24}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: comments
+      POSTGRES_DB: comments
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - comments-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "comments"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *backend
+    command: ["migrate", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  serve:
+    <<: *backend
+    command: ["serve"]
+    restart: unless-stopped
+    # Only on the host's loopback, for the shared reverse proxy.
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *backend
+    command: ["worker"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.90.0.0/24
+
+volumes:
+  comments-db:
