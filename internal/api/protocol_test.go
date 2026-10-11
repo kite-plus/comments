@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -334,45 +332,8 @@ func TestBackchannelLogout(t *testing.T) {
 	}
 }
 
-// fakeIdentityAPI answers the identity service reads behind a push.
-type fakeIdentityAPI struct {
-	mu      sync.Mutex
-	state   string // a USER_STATE_ value; "" answers not found
-	removed bool
-}
-
-func (f *fakeIdentityAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/v2/users/"):
-		if f.state == "" {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"code":5,"message":"User could not be found"}`))
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"state": f.state}})
-	case r.URL.Path == "/admin/v1/events/_search":
-		if f.removed {
-			_, _ = w.Write([]byte(`{"events":[{"aggregate":{"id":"ann"},"sequence":"9","type":{"type":"user.removed"}}]}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{}`))
-	}
-}
-
-func (f *fakeIdentityAPI) set(state string, removed bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.state, f.removed = state, removed
-}
-
 func TestIDPWebhook(t *testing.T) {
 	e := newEnv(t)
-	api := &fakeIdentityAPI{state: "USER_STATE_ACTIVE"}
-	ts := httptest.NewServer(api)
-	defer ts.Close()
-	e.srv.IDP = &idp.Client{BaseURL: ts.URL, Token: "t"}
 	token, _ := e.popupLogin("ann", e.site)
 	send := func(body string, sig string) int {
 		return e.do(req{method: "POST", path: "/hooks/idp", body: body, headers: map[string]string{"Content-Type": "application/json", idp.SignatureHeader: sig}}).Code
@@ -398,7 +359,7 @@ func TestIDPWebhook(t *testing.T) {
 	if seen, _ := e.st.IDPEventSeen(t.Context(), "ann:7"); seen {
 		t.Error("a push recorded its event ID")
 	}
-	api.set("USER_STATE_INACTIVE", false)
+	e.identity.Set("ann", "USER_STATE_INACTIVE")
 	if c := send(deactivate, idp.Sign([]byte(deactivate), "hook-secret", time.Now())); c != http.StatusOK {
 		t.Fatalf("deactivate = %d", c)
 	}
@@ -412,7 +373,7 @@ func TestIDPWebhook(t *testing.T) {
 	if err := e.st.SuspendUser(t.Context(), user().ID, "spam"); err != nil {
 		t.Fatal(err)
 	}
-	api.set("USER_STATE_ACTIVE", false)
+	e.identity.Set("ann", "USER_STATE_ACTIVE")
 	reactivate := `{"aggregateID":"ann","aggregateType":"user","sequence":8,"event_type":"user.reactivated","created_at":"2026-10-10T00:00:01Z"}`
 	send(reactivate, idp.Sign([]byte(reactivate), "hook-secret", time.Now()))
 	if u := user(); u.IDPSuspendedAt != nil || u.SuspendedAt == nil {
@@ -429,12 +390,12 @@ func TestIDPWebhook(t *testing.T) {
 	if c := send(removed, idp.Sign([]byte(removed), "hook-secret", time.Now())); c != http.StatusOK {
 		t.Fatalf("forged removal = %d", c)
 	}
-	api.set("", false)
+	e.identity.Set("ann", "")
 	if c := send(removed, idp.Sign([]byte(removed), "hook-secret", time.Now())); c != http.StatusServiceUnavailable {
 		t.Fatalf("unconfirmed removal = %d", c)
 	}
 	user()
-	api.set("", true)
+	e.identity.Remove("ann")
 	if c := send(removed, idp.Sign([]byte(removed), "hook-secret", time.Now())); c != http.StatusOK {
 		t.Fatalf("remove = %d", c)
 	}

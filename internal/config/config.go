@@ -67,6 +67,9 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil || (pub.Scheme != "http" && pub.Scheme != "https") || pub.Host == "" || (pub.Path != "" && pub.Path != "/") {
 		return Config{}, fmt.Errorf("COMMENTS_PUBLIC_URL: %q is not an http or https origin", c.PublicURL)
 	}
+	if c.IDPWebhookSecret != "" && c.IDPAPIToken == "" {
+		return Config{}, errors.New("COMMENTS_IDP_WEBHOOK_SECRET needs COMMENTS_IDP_API_TOKEN: a pushed event is applied only once the identity service confirms it")
+	}
 	for name, v := range map[string]string{"COMMENTS_OIDC_ISSUER": c.OIDCIssuer, "COMMENTS_IDP_API_URL": c.IDPAPIURL} {
 		if u, err := url.Parse(v); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return Config{}, fmt.Errorf("%s: %q is not an http or https URL", name, v)

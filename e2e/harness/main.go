@@ -26,6 +26,7 @@ import (
 	"github.com/kite-plus/comments/internal/api"
 	"github.com/kite-plus/comments/internal/crypt"
 	"github.com/kite-plus/comments/internal/devblogs"
+	"github.com/kite-plus/comments/internal/idp/idptest"
 	"github.com/kite-plus/comments/internal/mailer"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/oidc"
@@ -100,8 +101,11 @@ func run() error {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	// Events are checked against the identity service, faked here.
+	identity := idptest.New()
+	defer identity.Close()
 	srv := &api.Server{
-		Store: st, Keys: keys, PublicURL: public, Issuer: issuer, IDPWebhookSecret: "hook-secret", DevHTTPOrigins: true,
+		Store: st, Keys: keys, PublicURL: public, Issuer: issuer, IDPWebhookSecret: "hook-secret", IDP: identity.Client(), DevHTTPOrigins: true,
 		OIDC:    oidc.New(oidc.Config{Issuer: issuer, ClientID: "comments", ClientSecret: "secret", RedirectURL: public + "/auth/callback"}),
 		Fetcher: verify.NewFetcher(true), Widget: web.Widget(), Console: web.Console(), Log: log,
 	}

@@ -293,23 +293,12 @@ func (c *Client) Removed(ctx context.Context, sub string) (bool, error) {
 	return len(out.Events) > 0, nil
 }
 
-// stateOf is what an event implies when there is no client to ask.
-func stateOf(eventType string) string {
-	switch eventType {
-	case UserRemoved:
-		return StateDeleted
-	case UserDeactivated:
-		return StateInactive
-	}
-	return StateActive
-}
-
-// Apply acts on one event once. With a client, a webhook delivery is only
-// a hint, since another service's token can read this service's signing
-// key: the user's current state is read from the identity service and
-// applied, and data is deleted only when the user is gone and the
-// authoritative event search has their removal. Without a client (tests),
-// the event type decides. An inactive account is suspended and an active
+// Apply acts on one event once. An event is only a hint, since another
+// service's token can read this service's signing key: the user's current
+// state is read from the identity service and applied, and data is deleted
+// only when the user is gone and the authoritative event search has their
+// removal. The event type never decides, so without a client nothing
+// happens (ErrUnavailable). An inactive account is suspended and an active
 // one has the identity service's suspension lifted; locking changes
 // nothing. A deleted account's data goes as its on_account_delete setting
 // says. Events for readers who never used this service are recorded and
@@ -319,6 +308,9 @@ func stateOf(eventType string) string {
 // so it must never mark an event handled; acting on the current state is
 // safe to repeat.
 func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Event) (applied bool, err error) {
+	if c == nil {
+		return false, ErrUnavailable
+	}
 	if ev.FromSearch {
 		seen, err := st.IDPEventSeen(ctx, ev.ID)
 		if err != nil || seen {
@@ -331,21 +323,19 @@ func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Ev
 	case err != nil:
 		return false, err
 	default:
-		state := stateOf(ev.Type)
-		if c != nil {
-			if state, err = c.UserState(ctx, ev.Subject); err != nil {
+		var state string
+		if state, err = c.UserState(ctx, ev.Subject); err != nil {
+			return false, err
+		}
+		// A removal read from the search is its own confirmation.
+		confirmed := ev.FromSearch && ev.Type == UserRemoved
+		if state == StateDeleted && !confirmed {
+			removed, err := c.Removed(ctx, ev.Subject)
+			if err != nil {
 				return false, err
 			}
-			// A removal read from the search is its own confirmation.
-			confirmed := ev.FromSearch && ev.Type == UserRemoved
-			if state == StateDeleted && !confirmed {
-				removed, err := c.Removed(ctx, ev.Subject)
-				if err != nil {
-					return false, err
-				}
-				if !removed {
-					return false, ErrUnconfirmed
-				}
+			if !removed {
+				return false, ErrUnconfirmed
 			}
 		}
 		switch state {

@@ -213,3 +213,21 @@ func TestPushesNeverClaimEventIDs(t *testing.T) {
 		t.Errorf("a searched event applied twice: %v %v", applied, err)
 	}
 }
+
+// Without the identity service to ask, an event's type never decides.
+func TestApplyNeverTrustsTheEventType(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	u, _, err := st.LoginUser(ctx, store.OIDCLogin{Issuer: "iss", Subject: "sub", DisplayName: "U", Locale: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{UserRemoved, UserDeactivated} {
+		if _, err := Apply(ctx, st, nil, "iss", Event{ID: "sub:1", Type: kind, Subject: "sub"}); !errors.Is(err, ErrUnavailable) {
+			t.Errorf("%s without a client: %v", kind, err)
+		}
+	}
+	if x, err := st.User(ctx, u.ID); err != nil || x.Suspended() {
+		t.Errorf("acted on an event type: %+v %v", x, err)
+	}
+}

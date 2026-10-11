@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kite-plus/comments/internal/crypt"
+	"github.com/kite-plus/comments/internal/idp/idptest"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/oidc"
 	"github.com/kite-plus/comments/internal/oidc/oidctest"
@@ -33,15 +34,17 @@ const (
 )
 
 type env struct {
-	db    *pgx.Conn
-	t     *testing.T
-	srv   *Server
-	h     http.Handler
-	idp   *oidctest.Provider
-	st    *store.Store
-	keys  *crypt.Keys
-	site  model.Site
-	other model.Site
+	db  *pgx.Conn
+	t   *testing.T
+	srv *Server
+	h   http.Handler
+	idp *oidctest.Provider
+	// identity fakes the identity service API that events are checked against.
+	identity *idptest.Server
+	st       *store.Store
+	keys     *crypt.Keys
+	site     model.Site
+	other    model.Site
 }
 
 func testKeys(t *testing.T) *crypt.Keys {
@@ -71,9 +74,11 @@ func newEnv(t *testing.T) *env {
 		p.AddUser(u)
 	}
 	keys := testKeys(t)
-	e := &env{t: t, idp: p, st: st, keys: keys, db: storetest.Conn(t, schema)}
+	identity := idptest.New()
+	t.Cleanup(identity.Close)
+	e := &env{t: t, idp: p, identity: identity, st: st, keys: keys, db: storetest.Conn(t, schema)}
 	e.srv = &Server{
-		Store: st, Keys: keys, PublicURL: testPublic, Issuer: p.Issuer, IDPWebhookSecret: "hook-secret",
+		Store: st, Keys: keys, PublicURL: testPublic, Issuer: p.Issuer, IDPWebhookSecret: "hook-secret", IDP: identity.Client(),
 		OIDC:    oidc.New(oidc.Config{Issuer: p.Issuer, ClientID: "comments", ClientSecret: "secret", RedirectURL: testPublic + "/auth/callback"}),
 		Fetcher: verify.NewFetcher(true),
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),

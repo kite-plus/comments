@@ -68,6 +68,8 @@ func TestInvalidValues(t *testing.T) {
 		{"COMMENTS_DEV_HTTP_ORIGINS": "true"},
 		{"COMMENTS_DEV_HTTP_ORIGINS": "true", "COMMENTS_PUBLIC_URL": "https://comments.example"},
 		{"COMMENTS_ALLOW_PRIVATE_NETWORKS": "true"},
+		// A push is only a hint; without the API token nothing can confirm it.
+		{"COMMENTS_IDP_WEBHOOK_SECRET": "hook"},
 		{"COMMENTS_ALLOW_PRIVATE_NETWORKS": "true", "COMMENTS_PUBLIC_URL": "https://comments.example"},
 	}
 	for _, m := range cases {
