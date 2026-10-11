@@ -58,7 +58,7 @@ make e2e-real   # the browser test against the real local identity stack and mak
 
 ## Deployment
 
-Not deployed yet. Production and staging will run on the US server that also hosts Explore and the identity service, behind Explore's Caddy, the only thing on ports 80 and 443 there ([architecture.md section 9](docs/design/architecture.md#9-部署与运维)).
+Production runs at https://comments.kite.plus since 2026-10-11 (staging not yet), on the US server that also hosts Explore and the identity service, behind Explore's Caddy, the only thing on ports 80 and 443 there ([architecture.md section 9](docs/design/architecture.md#9-部署与运维)).
 
 - `deploy/docker-compose.yaml` runs PostgreSQL, the migration, the HTTP server (service `server`) and the worker. With `COMPOSE_FILE=docker-compose.yaml:docker-compose.edge.yaml` in `deploy/.env` (edge mode, as in production), the server publishes no port and joins the shared `kite-edge` network as `comments`, trusting `X-Forwarded-For` from that network only. Without it (standalone mode), the server listens on `127.0.0.1:8081` for a reverse proxy on the same host, and `deploy/Caddyfile` is the site block.
 - `deploy/edge/comments.caddy` and `comments-routes.caddyfile` go into Explore's `sites/` directory, then `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` there. The routes file holds the Cookie rules for both modes.
@@ -72,7 +72,7 @@ Not deployed yet. Production and staging will run on the US server that also hos
   ```
 
 - Staging is a second checkout (`/opt/comments-staging`) whose `.env` also sets `COMPOSE_PROJECT_NAME`, `COMMENTS_EDGE_ALIAS` and `COMMENTS_SUBNET` (see `deploy/.env.example`); its Caddy file is `deploy/edge/comments-staging.caddy`. It runs only for tests and upgrades.
-- `scripts/backup.sh` (daily from cron) writes an age-encrypted dump to `BACKUP_DIR` and, with `BACKUP_REMOTE` set, copies it off the server with rclone. The keys in `.env` are not in it; keep them offline. To restore into an empty stack of the same version:
+- `scripts/backup.sh` (daily, from the systemd timer `kite-comments-backup` on the server) writes an age-encrypted dump to `BACKUP_DIR` and, with `BACKUP_REMOTE` set, copies it off the server with rclone. The keys in `.env` are not in it; keep them offline. To restore into an empty stack of the same version:
 
   ```sh
   age -d -i age.key /var/backups/comments/comments-20261011T031500Z.tar.age | tar -xf - comments.dump
