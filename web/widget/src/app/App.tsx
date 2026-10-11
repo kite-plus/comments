@@ -256,12 +256,26 @@ interface Ctx {
   setPage: (f: (p: Page) => Page) => void;
 }
 
+// The Kite Plus mark, drawn in the current text color.
+function Mark() {
+  return (
+    <svg class="kc-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <g fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round" transform="translate(32 32) scale(0.82) translate(-32 -32)">
+        <path d="M10 14.5 L27 21 L27 30 L10 23.5 Z" />
+        <path d="M10 32 L27 38.5 L27 49 L10 42.5 Z" />
+        <path d="M37 21 L54 14.5 L54 42.5 L37 49 Z" />
+      </g>
+    </svg>
+  );
+}
+
 function Frame({ s, d, children }: { s: Strings; d: Data; children: ComponentChildren }) {
   return (
     <main class="kc">
       {children}
       <footer class="kc-foot">
         <a href={d.public_url} target="_blank" rel="noopener">
+          <Mark />
           {s.footer}
         </a>
       </footer>
@@ -293,12 +307,14 @@ function SignedOut({ ctx, login, state, storageOff, onPosted }: {
         <>
           <p class="kc-hint">{s.popupBlocked}</p>
           <button type="button" class="kc-primary" onClick={() => login?.redirect()}>
+            <Mark />
             {s.signInHere}
           </button>
         </>
       ) : (
         <>
           <button type="button" class="kc-primary" onClick={() => login?.start()} disabled={state === "waiting"}>
+            <Mark />
             {state === "waiting" ? s.waiting : s.signIn}
           </button>
           {d.guest_policy && d.guest_policy !== "off" && (
