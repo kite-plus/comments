@@ -108,9 +108,11 @@ test("real identity stack: popup, one click, reply mail, sign-outs, back-channel
     await popupSignIn(actx, apage, alice);
     const item = widget(apage).locator(".kc-thread", { hasText: mine }).first();
     await item.getByRole("button", { name: /^(回复|Reply)$/ }).first().click();
-    await widget(apage).locator(".kc-reply-form textarea").fill("A reply for the mail test");
+    // Unique text: replies from earlier runs stay on this page.
+    const reply = "A reply for the mail test " + Date.now();
+    await widget(apage).locator(".kc-reply-form textarea").fill(reply);
     await widget(apage).locator(".kc-reply-form").getByRole("button", { name: /^(发表|Post)$/ }).click();
-    await expect(widget(apage).locator(".kc-body", { hasText: "A reply for the mail test" })).toBeVisible();
+    await expect(widget(apage).locator(".kc-body", { hasText: reply })).toBeVisible();
     await expect
       .poll(async () => (await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent("to:" + email)}`)).json()).messages_count, { timeout: 60000 })
       .toBeGreaterThan(0);
@@ -139,11 +141,12 @@ test("real identity stack: popup, one click, reply mail, sign-outs, back-channel
     await expect(widget(page).getByRole("button", { name: /Kite Plus/ })).toBeVisible();
 
     // User events: deactivation suspends, reactivation lifts it, removal
-    // takes the reader's data (the comments are removed by default).
+    // takes the reader's data (the comments are removed by default). The
+    // identity service's suspension is kept apart from the platform's.
     await zitadel("POST", `/v2/users/${sub}/deactivate`, {});
-    await expect.poll(() => sql(`SELECT u.suspended_at IS NOT NULL FROM users u JOIN user_identities ui ON ui.user_id = u.id WHERE ui.subject = '${sub}'`), { timeout: 20000 }).toBe("t");
+    await expect.poll(() => sql(`SELECT u.idp_suspended_at IS NOT NULL FROM users u JOIN user_identities ui ON ui.user_id = u.id WHERE ui.subject = '${sub}'`), { timeout: 20000 }).toBe("t");
     await zitadel("POST", `/v2/users/${sub}/reactivate`, {});
-    await expect.poll(() => sql(`SELECT u.suspended_at IS NULL FROM users u JOIN user_identities ui ON ui.user_id = u.id WHERE ui.subject = '${sub}'`), { timeout: 20000 }).toBe("t");
+    await expect.poll(() => sql(`SELECT u.idp_suspended_at IS NULL FROM users u JOIN user_identities ui ON ui.user_id = u.id WHERE ui.subject = '${sub}'`), { timeout: 20000 }).toBe("t");
     await zitadel("DELETE", `/v2/users/${sub}`);
     await expect.poll(() => sql(`SELECT count(*) FROM user_identities WHERE subject = '${sub}'`), { timeout: 20000 }).toBe("0");
     expect(sql(`SELECT status FROM comments WHERE body_md = '${mine}'`)).toBe("deleted");
