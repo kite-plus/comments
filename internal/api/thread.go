@@ -164,6 +164,11 @@ func (s *Server) threadDocument(c *gin.Context) {
 					for k, v := range body {
 						data[k] = v
 					}
+					// A page with no thread yet can be closed already by its
+					// publication date (sites.md section 4).
+					if _, ok := body["thread_id"]; !ok && s.threadClosed(site, nil, parsePublished(c.Query("published"))) {
+						data["closed"] = true
+					}
 				}
 			}
 		}

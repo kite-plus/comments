@@ -349,3 +349,52 @@ func TestCleanupRuns(t *testing.T) {
 	}
 	s.exec(t, `SELECT 1`)
 }
+
+func TestReportThresholdNeedsTrustedReporters(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	author := newUser(t, s, "author", "Author")
+	site := newSite(t, s, "https://a.example", nil)
+	c, err := s.CreateComment(ctx, NewComment{SiteID: site.ID, ThreadKey: "p:/x", ThreadURL: "https://a.example/x",
+		AuthorKind: model.AuthorUser, AuthorUserID: &author.ID, BodyMD: "b", BodyHTML: "<p>b</p>", RenderVersion: 1, Status: model.StatusPublished})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Three reporters, made trusted: old enough, with published comments
+	// on two sites they do not manage.
+	other := newSite(t, s, "https://b.example", nil)
+	var reporters []model.User
+	for _, sub := range []string{"r1", "r2", "r3"} {
+		u := newUser(t, s, sub, sub)
+		for i, st := range []model.Site{site, other, other} {
+			if _, err := s.CreateComment(ctx, NewComment{SiteID: st.ID, ThreadKey: "p:/t" + sub + string(rune('a'+i)), ThreadURL: "https://a.example/t",
+				AuthorKind: model.AuthorUser, AuthorUserID: &u.ID, BodyMD: "x" + sub + string(rune('a'+i)), BodyHTML: "<p>x</p>", RenderVersion: 1,
+				Status: model.StatusPublished}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		reporters = append(reporters, u)
+	}
+	s.exec(t, `UPDATE users SET created_at = now() - interval '30 days' WHERE display_name IN ('r1', 'r2', 'r3')`)
+	untrusted := newUser(t, s, "new", "New")
+	if ok, err := s.Trusted(ctx, untrusted.ID); err != nil || ok {
+		t.Fatalf("a new account counted as trusted: %v %v", ok, err)
+	}
+	for i, r := range reporters {
+		trusted, err := s.Trusted(ctx, r.ID)
+		if err != nil || !trusted {
+			t.Fatalf("reporter %d not trusted: %v", i, err)
+		}
+		res, err := s.CreateReport(ctx, ReportIn{SiteID: site.ID, CommentID: c.ID, ReporterID: r.ID, Reason: "abuse", ReporterTrusted: trusted})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Returned != (i == 2) {
+			t.Errorf("after report %d returned = %v", i+1, res.Returned)
+		}
+	}
+	got, _ := s.Comment(ctx, c.ID)
+	if got.Status != model.StatusPending {
+		t.Errorf("status after three trusted reports = %s", got.Status)
+	}
+}
