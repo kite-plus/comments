@@ -1,0 +1,6 @@
+/bin/
+/dist/
+.env
+node_modules/
+coverage.out
+.DS_Store
