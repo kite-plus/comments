@@ -1,6 +1,6 @@
 # Kite Plus 评论 总体设计
 
-> 状态：规划草案，经独立审阅修订；暂缓，等身份服务先上线（[identity 路线图](https://github.com/kite-plus/identity/blob/main/docs/design/roadmap.md)）；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-10
+> 状态：C2 的代码已完成并在本地对着身份服务的开发栈跑通（[roadmap.md §4](roadmap.md#4-c2-评论内测)）；未上线；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-11
 > 文档约定沿用 [Kite 设计文档](https://github.com/kite-plus/kite/blob/main/docs/design/README.md)：正文中文，专有名词保留英文；`[设计中]` 表示实现前还可调整，`[待定]` 表示明确推迟决策；`[EV]` 表示结论有实测或既有项目佐证。
 > 与本文冲突的实现，先改文档，再改代码。
 > 本文是总体设计；登录、组件、数据模型、接口、审核、站点接入和路线图各有专门的文档，索引见 [README.md](README.md)。
@@ -179,7 +179,7 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 
 | 项 | 做法 | 详见 |
 |---|---|---|
-| 读评论 | 服务端收不到任何会话：`embed.js` 不带 Cookie 加载，iframe 文档和匿名读取接口的 Cookie 在反向代理处删掉；不建记录，讨论页在第一条评论写入时才创建 | [widget.md §1](widget.md#1-目标)、[§4](widget.md#4-iframe-地址)、[data-model.md §1](data-model.md#1-数据分类) |
+| 读评论 | 服务端收不到任何会话：`embed.js` 不带 Cookie 加载，iframe 文档和匿名读取接口的 Cookie 在反向代理处删掉，服务端也删；不建记录，讨论页在第一条评论写入时才创建。登录过这个站点的读者，组件加载后另有一个带会话的「我是谁」请求，不带文章地址 | [widget.md §1](widget.md#1-目标)、[§4](widget.md#4-iframe-地址)、[login.md §5](login.md#5-站点会话)、[data-model.md §1](data-model.md#1-数据分类) |
 | 宿主页 | 看不出谁在读：组件高度和发给宿主页的消息不随读者身份变化 | [widget.md §9](widget.md#9-界面) |
 | Cookie | 都是 `__Host-` 前缀：按站点命名的分区站点会话、第一方的控制台会话、登录时用的 binder。匿名读者一个也没有 | [login.md §3](login.md#3-三种会话) |
 | 读者 ID | 读者在每个站点的作者 ID 各不相同，任何人都不能凭 ID 把一个读者在各站的评论串起来，博主的导出之间也对不上 | [data-model.md §3.1](data-model.md#31-账号与身份) |
@@ -203,7 +203,7 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 | 发信 | SMTP，经 `outbox` 由 worker 发送 | [moderation.md §6.3](moderation.md#63-发信) |
 | 组件界面 | Preact、TypeScript、Vite | 体积预算（[widget.md §10](widget.md#10-加载体积与降级)） |
 | 读者中心、站点控制台 | React 19、Tailwind v4、shadcn/ui、TanStack Query | 与 Explore 后台相同，组件和经验可以复用 |
-| 前端交付 | 构建产物用 `embed` 打进 Go 二进制，只有一个镜像 | 不需要服务端渲染，比 Explore 少一个 Node 服务 |
+| 前端交付 | 构建产物用 `embed` 打进 Go 二进制（`web/embed.go`），只有一个镜像；镜像构建里有一个 Node 阶段 | 不需要服务端渲染，比 Explore 少一个 Node 服务。读者中心和控制台怎么交付见 [api.md §11](api.md#11-读者中心和站点控制台的前端约定) |
 | 反向代理 | 和身份服务共用同一个 | 选型（Caddy 或 nginx）和限流见 [identity architecture.md §4](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#4-部署) |
 | 身份服务 | ZITADEL 或 Logto，由 identity 的 I0 选定 | [identity architecture.md §3](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#3-选型) |
 
@@ -217,36 +217,43 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 comments/
 ├── cmd/comments/main.go      只调用 internal/cli
 ├── internal/
-│   ├── cli/        serve、worker、migrate up、users promote-admin、sites suspend、version
+│   ├── cli/        serve、worker、migrate up、users promote-admin|demote-admin、
+│   │               sites list|approve|suspend|unsuspend、version、dev seed|blogs（只给开发机）
 │   ├── config/     COMMENTS_* 环境变量
 │   ├── policy/     限额、保留期等产品常量（单一出处）
 │   ├── model/      领域类型
 │   ├── pagekey/    讨论页标识规范化（widget.md §5）
 │   ├── markup/     Markdown 渲染与净化，唯一产出 HTML 的包
-│   ├── importer/   各导入格式的解析
+│   ├── importer/   各导入格式的解析和导入计划
 │   ├── spam/       反垃圾规则
 │   ├── pow/        工作量证明
-│   ├── crypt/      邮箱加密与 HMAC、IP 密钥派生
-│   ├── oidc/       OIDC 客户端，ID Token 与 Logout Token 校验
+│   ├── crypt/      邮箱加密与 HMAC、IP 密钥派生、令牌和签名
+│   ├── oidc/       OIDC 客户端，ID Token 与 Logout Token 校验；oidctest 是测试用的假身份服务
+│   ├── idp/        身份服务的用户事件：推送签名、事件查询、按用户当前状态处理
 │   ├── verify/     站点验证（DNS、HTTP），含内网地址防护
 │   ├── mailer/     SMTP 与邮件模板
-│   ├── store/      PostgreSQL
+│   ├── store/      PostgreSQL；storetest 给测试建独立的 schema
 │   ├── api/        HTTP
-│   └── worker/     发信、清理、对账、导入、重渲染
+│   ├── worker/     发信、站长通知、清理、对账、导入、重渲染、复查
+│   ├── devblogs/   两个本地测试博客的页面（开发和浏览器测试用）
+│   └── buildinfo/  链接时写入的版本
 ├── migrations/     goose，只向前
 ├── web/
-│   ├── widget/     embed.js 与 iframe 界面（Preact）
-│   └── console/    读者中心与站点控制台（React）
-├── deploy/         Dockerfile、docker-compose.yaml、Caddyfile、.env.example
+│   ├── embed.go    把下面两个 dist 打进二进制
+│   ├── widget/     embed.js、iframe 界面和弹窗页脚本（Preact）
+│   └── console/    读者中心与站点控制台（React，另一条分支开发）
+├── e2e/            浏览器测试（Playwright，用本机的 Google Chrome）、测试桩、导出导入往返测试
+├── deploy/         Dockerfile、docker-compose.yaml、docker-compose.dev.yaml、Caddyfile、.env.example、.env.dev.example
+├── scripts/check-imports.sh
 ├── testdata/schema/columns.txt
-└── docs/design/
+└── docs/           design/ 和 export-format.md
 ```
 
 **依赖规则**（`scripts/check-imports.sh`，在 `make check` 里跑）：
 
-- `policy`、`model`、`pagekey`、`markup`、`importer`、`spam`、`pow`、`crypt` 是纯逻辑包，不引用 I/O 层、gin 和 pgx。
-- 只有 `api` 引用 gin，只有 `store` 引用 pgx。
-- `api` 和 `worker` 互不引用。
+- `policy`、`model`、`pagekey`、`markup`、`importer`、`spam`、`pow`、`crypt` 是纯逻辑包，不引用 I/O 层（`store`、`api`、`worker`、`cli`、`config`、`oidc`、`verify`、`mailer`、`idp`）、gin、pgx、`net/http` 和 `database/sql`。
+- 只有 `api` 引用 gin，只有 `store`（含 `storetest`）引用 pgx，只有 `markup` 引用 goldmark 和 bluemonday。
+- `api` 和 `worker` 互不引用，只在数据库里相遇；两边共用的逻辑放在 `idp`、`mailer` 这样的包里。
 
 **配置**：环境变量，前缀 `COMMENTS_`。产品阈值不进配置，放在 `internal/policy`，和 Explore 一样。
 
@@ -262,8 +269,14 @@ comments/
 | `COMMENTS_HMAC_KEY` | 邮箱 HMAC 的密钥，不能轮换 |
 | `COMMENTS_IP_KEY` | IP HMAC 的主密钥，按月派生 |
 | `COMMENTS_IDP_WEBHOOK_SECRET` | 校验身份服务事件的签名 |
-| `COMMENTS_SMTP_URL`、`COMMENTS_MAIL_FROM` | 发信 |
+| `COMMENTS_IDP_API_TOKEN` | 身份服务的 API 令牌（只读），用来对账和在处理事件前读取用户当前状态（[login.md §7](login.md#7-账号删除与停用)）；不设就不对账 |
+| `COMMENTS_IDP_API_URL` | 身份服务 API 的地址，默认就是 issuer |
+| `COMMENTS_SMTP_URL`、`COMMENTS_MAIL_FROM` | 发信：`smtp://[user:pass@]host:port`（服务器支持时 STARTTLS）或 `smtps://`；不设时邮件留在队列里 |
 | `COMMENTS_LOG_LEVEL` | 日志级别 |
+| `COMMENTS_DEV_HTTP_ORIGINS` | 只给开发机：允许站点用 http 的 origin，本地测试博客靠它；`COMMENTS_PUBLIC_URL` 是 https 时拒绝启动（[sites.md §2](sites.md#2-注册与验证)） |
+| `COMMENTS_ALLOW_PRIVATE_NETWORKS` | 只给开发机：站点验证和头像抓取可以访问内网地址和任意端口 |
+
+`COMMENTS_DATA_KEYS` 的格式是 `版本:base64密钥,版本:base64密钥`，每把 32 字节，版本号 1–255，最大的那个加密，列出的都能解密。`COMMENTS_HMAC_KEY`、`COMMENTS_IP_KEY` 各是一把 32 字节的 base64 密钥。
 
 ---
 

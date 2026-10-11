@@ -4,7 +4,7 @@ Kite Plus 评论的产品与技术设计。这些文档是**开发期的约束�
 
 跨项目的身份约定（OIDC、`(iss, sub)`、各应用独立会话）写在 [Explore identity-and-comments.md](https://github.com/kite-plus/explore/blob/main/docs/design/identity-and-comments.md)；身份服务本身（选型、部署、运维）在 [identity 仓库](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md)。这里的文档引用它们，不重复。
 
-**评论这条线暂缓**：身份服务是基础设施，先按 [identity 路线图](https://github.com/kite-plus/identity/blob/main/docs/design/roadmap.md) 做，评论服务在身份服务可用之后再开工（[roadmap.md §1](roadmap.md#1-总览)）。
+**进度**：身份服务的本地开发栈可用之后，评论服务的 C2 代码已经写完并在本地跑通，C3 做了一部分；都没有上线（[roadmap.md §1](roadmap.md#1-总览)）。设计文档已按实现回填，实现中改动设计的地方都在对应章节写明了原因。
 
 ## 文档索引
 
@@ -17,7 +17,8 @@ Kite Plus 评论的产品与技术设计。这些文档是**开发期的约束�
 | [api.md](api.md) | 接口约定、鉴权、各类接口、错误码 | 后端、前端 |
 | [moderation.md](moderation.md) | 发布规则、反垃圾、限额、审核与处置、内容格式、通知 | 后端、维护者 |
 | [sites.md](sites.md) | 站点注册与验证、设置、各博客系统接入、认领历史评论、导入导出、与 Kite 的集成 | 后端、接入文档作者 |
-| [roadmap.md](roadmap.md) | C0–C4 各阶段的范围、用例与退出条件，待定事项汇总 | 所有贡献者，排期前读 |
+| [roadmap.md](roadmap.md) | C0–C4 各阶段的范围、用例与退出条件、实现进度，待定事项汇总 | 所有贡献者，排期前读 |
+| [../export-format.md](../export-format.md) | 博主导出的 JSON 格式（版本 1） | 博主、导入工具作者 |
 
 ## 阅读顺序
 
@@ -41,17 +42,19 @@ Kite Plus 评论的产品与技术设计。这些文档是**开发期的约束�
 
 | 文档 | 状态 | 最近更新 |
 |---|---|---|
-| architecture.md | 规划草案；§5 的合规结论上线前需确认 | 2026-10-10 |
-| login.md | 规划草案；`[待定]` 由 C0 实测决定 | 2026-09-26 |
-| widget.md | 规划草案；C0 验证后定稿 | 2026-09-26 |
-| data-model.md | 规划草案 | 2026-09-26 |
-| api.md | 规划草案 | 2026-09-26 |
-| moderation.md | 规划草案；限额在 C2 内测后回填 | 2026-09-26 |
-| sites.md | 规划草案；导入格式在 C3 前再核对 | 2026-10-10 |
-| roadmap.md | 暂缓，等身份服务先上线 | 2026-10-10 |
+| architecture.md | C2 已实现；§5 的合规结论上线前需确认 | 2026-10-11 |
+| login.md | 已实现，本地实测结论已回填；真机矩阵待 C0 | 2026-10-11 |
+| widget.md | 已实现；C0 真机复测后定稿 | 2026-10-11 |
+| data-model.md | 已落地为迁移文件 | 2026-10-11 |
+| api.md | 已实现，含读者中心和控制台的前端约定（§11） | 2026-10-11 |
+| moderation.md | 已实现；限额在 C2 内测后回填 | 2026-10-11 |
+| sites.md | 已实现，导入待真实数据验收 | 2026-10-11 |
+| roadmap.md | 实现进度已标注 | 2026-10-11 |
 
 2026-09-26 按一次独立审阅做了修订：登录入口只接受本站页面的请求、认领验证绑定发起人、组件高度不随身份变化、读取收不到 Cookie、站点会话 Cookie 按站点命名、读者 ID 按站点区分，以及账号删除、站点生命周期、数值单一出处等一批修正。
 
 2026-10-10：Kite 改为通过官方评论插件 `plugin-comments` 接入（多一个「Kite Plus 评论」选项），不再写进默认主题（[sites.md §5.1](sites.md#51-kite-评论插件)）。
 
 对外的产品名暂用「Kite Plus 评论」（英文 Kite Plus Comments），C3 公开前再定 `[待定]`。
+
+2026-10-11：按实现回填。主要的改动和决定：站点 origin 的约束允许 http，只给开发服务器用；记下证明 origin 的令牌哈希供复查；访客邮箱记下语言；新增垃圾域名清单表；iframe 和服务自己的页面用 `strict-origin` 而不是 `no-referrer`；身份服务的事件只当提示，处理前读取用户当前状态；`lang` 属性的归一规则；每日汇总定在 UTC 01:00；工作量证明的具体参数。

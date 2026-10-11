@@ -1,7 +1,7 @@
 # 数据模型
 
-> 状态：规划草案，经独立审阅修订，C2 开工前可调整 · 最近更新：2026-09-26
-> 原则见 [architecture.md §0](architecture.md#0-两个核心判断)。本文把它落到 PostgreSQL 上；迁移文件落地后，表结构以 `migrations/` 为准，本文同步更新。
+> 状态：已落地为 `migrations/00001_init.sql`，表结构以迁移文件为准，本文同步更新 · 最近更新：2026-10-11
+> 原则见 [architecture.md §0](architecture.md#0-两个核心判断)。本文把它落到 PostgreSQL 上。迁移文件另有一些只为查询加的索引，这里不一一列出。
 
 ---
 
@@ -200,10 +200,11 @@ CREATE TABLE sites (
 
 CREATE TABLE site_origins (
     origin           text        PRIMARY KEY
-                                 CHECK (origin LIKE 'https://%' AND char_length(origin) <= 300),
+                                 CHECK (origin ~ '^https?://' AND char_length(origin) <= 300),
     site_id          bigint      NOT NULL REFERENCES sites (id) ON DELETE CASCADE,
     is_primary       boolean     NOT NULL DEFAULT false,
     verified_at      timestamptz,
+    proof_hash       bytea,
     last_checked_at  timestamptz,
     failing_since    timestamptz,
     created_at       timestamptz NOT NULL DEFAULT now()
@@ -237,7 +238,8 @@ CREATE TABLE site_verifications (
 | `guest_policy`、`member_policy` | 含义见 [moderation.md §2](moderation.md#2-发布规则)。访客评论的默认值 `off` 只是兜底：C3 起新建站点时由博主明确选择（[sites.md §4](sites.md#4-站点设置与讨论页管理)） |
 | `query_keys` | 计入讨论页标识的查询参数，比如 WordPress 朴素链接的 `p`（[widget.md §5](widget.md#5-讨论页标识)） |
 | `allow_localhost` | 允许在 `http://localhost:*`、`http://127.0.0.1:*` 上显示只读的组件，方便博主本地预览主题（[widget.md §4](widget.md#4-iframe-地址)） |
-| `site_origins` | 一个 origin（`https://host[:port]`）只能属于一个站点，**每个都要单独验证**；否则别人可以抢先把你的域名加成他站点的别名。只接受 https。`last_checked_at`、`failing_since` 用于定期复查（[sites.md §2](sites.md#2-注册与验证)） |
+| `site_origins` | 一个 origin（`https://host[:port]`）只能属于一个站点，**每个都要单独验证**；否则别人可以抢先把你的域名加成他站点的别名。只接受 https：约束允许 `http://`，只是为了本地开发服务器（`COMMENTS_DEV_HTTP_ORIGINS`），生产服务在应用层拒绝 http（[sites.md §2](sites.md#2-注册与验证)）。`last_checked_at`、`failing_since` 用于定期复查 |
+| `site_origins.proof_hash` | 证明这个 origin 的那个验证令牌的哈希。令牌本身 7 天后过期删除，定期复查认这个哈希，所以博主不用为了复查重新生成令牌 |
 | `site_members.last_notified_at` | 上次给这位管理者发站长通知的时间，用于合并通知和每日汇总（[moderation.md §6.2](moderation.md#62-博主)） |
 | `site_verifications` | 一个站点的验证令牌，可以同时用来验证它的多个 origin，过期后重新生成。有效期和验证方式见 [sites.md §2](sites.md#2-注册与验证) |
 
@@ -301,6 +303,7 @@ CREATE INDEX comments_queue   ON comments (site_id, status, created_at DESC);
 CREATE INDEX comments_author  ON comments (author_user_id, created_at DESC) WHERE author_user_id IS NOT NULL;
 CREATE INDEX comments_claim   ON comments (author_email_hmac) WHERE author_kind = 'guest';
 CREATE UNIQUE INDEX comments_source ON comments (site_id, source, source_id) WHERE source <> 'native';
+CREATE INDEX comments_body_recent ON comments (md5(body_md), created_at);
 
 CREATE TABLE comment_revisions (
     comment_id  bigint      NOT NULL REFERENCES comments (id) ON DELETE CASCADE,
@@ -324,6 +327,7 @@ CREATE TABLE comment_revisions (
 | `status` | `pending` 待审；`published` 公开；`spam`、`hidden` 被判为垃圾或被管理者隐藏；`deleted` 作者删除。状态流转见 [moderation.md §2](moderation.md#2-发布规则) |
 | `source`、`source_id` | 导入来源和原系统里的 ID，保证重复导入不产生重复评论。`json` 是本服务自己的导出格式 |
 | `comment_revisions` | 编辑前的版本，供审核追查，保留期见 §4 |
+| `comments_body_recent` | 「相同正文 1 小时内出现在多个站点」这条反垃圾规则用（[moderation.md §3.1](moderation.md#31-通用规则)），是表达式索引，不加列 |
 
 ### 3.5 审核、举报与封禁
 
@@ -355,6 +359,12 @@ CREATE TABLE bans (
     CHECK (num_nonnulls(user_id, email_hmac, ip_hmac) = 1)
 );
 
+CREATE TABLE spam_domains (
+    domain      text        PRIMARY KEY CHECK (char_length(domain) BETWEEN 1 AND 253),
+    created_by  bigint               REFERENCES users (id) ON DELETE SET NULL,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE moderation_events (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     site_id        bigint               REFERENCES sites (id) ON DELETE CASCADE,
@@ -366,6 +376,7 @@ CREATE TABLE moderation_events (
 );
 ```
 
+- `spam_domains` 是平台维护的垃圾域名清单：评论里的链接指向清单里的域名或它的子域名时判为垃圾（[moderation.md §3.1](moderation.md#31-通用规则)）。只有平台维护者能改。
 - `bans.site_id` 为空表示全网封禁，只有平台维护者能建。IP 封禁怎么匹配见 [moderation.md §4.1](moderation.md#41-站点管理者)。
 - `moderation_events.actor_user_id` 为空表示系统自动处理（反垃圾规则、过期关闭）。`action` 的取值和 `detail` 的内容见 [moderation.md §4.4](moderation.md#44-处置记录)。迁移讨论页时，被移动的评论 ID 记在 `detail` 里，撤销时按它移回。
 
@@ -398,6 +409,7 @@ CREATE TABLE guest_emails (
     confirm_sent_at     timestamptz,
     confirmed_at        timestamptz,
     opted_out_at        timestamptz,
+    locale              text        NOT NULL DEFAULT 'zh-CN' CHECK (locale IN ('zh-CN', 'en')),
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 
@@ -433,6 +445,7 @@ CREATE INDEX outbox_coalesce ON outbox (coalesce_key) WHERE status = 'queued';
 
 - `notifications` 只给登录读者，是读者中心里的通知。访客没有读者中心，回复通知只有邮件。
 - `thread_mutes` 是登录读者在某个讨论页关闭的通知；访客只能按邮箱整体退订（`guest_emails.opted_out_at`）。
+- `guest_emails.locale` 是这个访客最近一次留言时组件的语言，确认信和回复通知按它发（[moderation.md §6.1](moderation.md#61-读者)）。
 - `guest_emails` 按邮箱记一次确认：访客第一次勾选「有人回复时通知我」，只发一封确认信；确认之前不发任何通知，避免有人拿别人的邮箱留言、让对方收到骚扰邮件（[moderation.md §6.1](moderation.md#61-读者)）。
 - `email_claims` 只能由发起它的账号完成验证，验证和确认都要这个账号的控制台会话（[sites.md §6](sites.md#6-认领历史评论)）。
 - 发信一律经 `outbox`，由 worker 发送和重试；接口层不直接连 SMTP。`coalesce_key` 相同的待发邮件由 worker 合并成一封：回复通知按读者或访客邮箱合并，站长通知按站点和管理者合并。
@@ -511,8 +524,10 @@ CREATE TABLE pow_spent (
 
 沿用 Explore 的做法：`testdata/schema/columns.txt` 列出每张表的每一列，迁移后和实际 schema 比对，不一致 CI 就失败。加列必须同时改这个文件和本文，审查时对照 §1 的「永远不出现」清单。
 
-另有几条自动化测试：
+`TestSchemaColumns`（`internal/store`）就是这个守护；它另外拒绝看起来像「永远不出现」的列名（`ip`、`user_agent`、`email`、`password`、`content` 等，`_enc`、`_hmac` 结尾的除外）。
 
-1. **读取不留痕**：浏览器同时带着有效的站点会话 Cookie 和控制台 Cookie，依次调用所有匿名读取接口（[api.md §3](api.md#3-组件读取匿名)）和 iframe 文档之后，任何表的行数和内容都不变，会话的 `last_used_at` 也不变。
-2. **邮箱不落明文**：灌入带邮箱的测试数据（原生、访客、导入三种来源）后，扫描全库文本列，找不到任何明文邮箱。
-3. **ID 不跨站**：同一个读者在两个站点发表评论，两个站点的接口和导出里找不到相同的作者 ID。
+另有几条自动化测试，都已实现：
+
+1. **读取不留痕**（`TestT8ReadsCarryNoSession`，以及浏览器里的 T8 测试）：浏览器同时带着有效的站点会话 Cookie 和控制台 Cookie，依次调用所有匿名读取接口（[api.md §3](api.md#3-组件读取匿名)）和 iframe 文档之后，任何表的行数和内容都不变，会话的 `last_used_at` 也不变。
+2. **邮箱不落明文**（`TestEmailsNeverStoredInPlainText`，以及认领、导入的测试）：灌入带邮箱的测试数据（原生、访客、导入三种来源）后，扫描全库文本列，找不到任何明文邮箱。
+3. **ID 不跨站**（`TestAuthorIDsDifferAcrossSites`）：同一个读者在两个站点发表评论，两个站点的接口和导出里找不到相同的作者 ID。

@@ -1,0 +1,25 @@
+# Changelog
+
+All notable changes to Kite Plus Comments are documented in this file.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+[简体中文](CHANGELOG.zh-CN.md)
+
+## [Unreleased]
+
+The first code: the service of the invite-only stage, not yet deployed. It runs locally against the identity service's development stack (ZITADEL v4.19.4).
+
+### Added
+
+- Readers sign in from any blog's comment section with one click: a popup goes to the Kite Plus account and closes itself, or, where popups cannot work (in-app browsers, host pages with `Cross-Origin-Opener-Policy: same-origin`), the whole page goes there and comes back after the reader confirms the site. The widget finishes the login by polling, so a login page that cuts the popup off does not break it.
+- Each blog remembers the reader on its own, in a partitioned cookie or, where the browser refuses one, in the widget's own storage; the host page can read neither. Signing out works per site, for all sites from the reader center, and from the Kite Plus account, which ends what that sign-in issued.
+- `embed.js` (2.7 KB gzip) defines `<kite-comments>`: lazy loading, the page's address and language, light and dark following the host page, an accent color, serif or sans fonts, deep links to `#kc-<id>`, and a pinned version with an SRI hash. The `lang` attribute, the page's `<html lang>` and the browser language map to Chinese for anything starting with `zh` and to English otherwise.
+- Comments with two levels of replies, Markdown rendered and sanitized on the server, editing within 24 hours, deleting, pinning, locking a page, reporting, a moderation queue, bans by account, email or IP, blocked words and spam rules, limits from one place in the code.
+- Guest comments for sites that allow them, with a proof of work instead of a captcha and one confirmation mail before any reply mail.
+- Mail for replies (several within ten minutes become one), new comments for site owners at once or as a daily digest at 09:00 Beijing time, and urgent reports; every notification has one-click unsubscribe, and links in mail only open pages.
+- Site registration with DNS, HTML meta or file verification, platform approval, settings, deletion with a 30-day recovery window, rechecks every 30 days, and moving a page's comments to a new address with undo.
+- Export of a site as JSON (documented in `docs/export-format.md`) or Artrans; import from this service's JSON, Waline, Twikoo, Artrans and WordPress WXR with a preview and address rewriting; readers can claim the guest comments they left with their email address.
+- Reader center and console APIs: my comments, notifications, profile, signed-in sites, export, deleting this service's data with the reader's choice for their comments.
+- The identity service's user events (removed, deactivated, locked and back) arrive by webhook and by hourly reconciliation, and are acted on only after reading the user's current state.
+- Deployment files: one image for serve, worker and migrate, Compose, a Caddyfile that strips cookies from reads, and environment examples.

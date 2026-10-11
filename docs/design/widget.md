@@ -1,6 +1,6 @@
 # 嵌入组件
 
-> 状态：规划草案，经独立审阅修订，C0 验证后定稿 · 最近更新：2026-09-26
+> 状态：C2 已实现（`web/widget`、`internal/api/thread.go`），本地 Chrome 实测通过；真机矩阵由 C0 复测后定稿 · 最近更新：2026-10-11
 > 登录流程见 [login.md](login.md)；本文只讲组件怎么嵌、怎么和宿主页相处。
 
 ---
@@ -34,7 +34,7 @@
 | `theme` | 否 | `auto`（默认，跟随宿主页背景）、`light`、`dark` |
 | `accent` | 否 | 强调色，`#RRGGBB`，默认 `#3d65bd` |
 | `font` | 否 | `sans`（默认）或 `serif`，都用读者设备上的字体 |
-| `lang` | 否 | `zh-CN` 或 `en`。默认取宿主页 `<html lang>`，识别不了再取浏览器语言 |
+| `lang` | 否 | 界面语言。默认取宿主页 `<html lang>`，没有再取浏览器语言。三个来源用同一条规则归一：以 `zh` 开头的（`zh`、`zh-CN`、`zh-Hans`、`zh-TW`……，不分大小写）一律是 `zh-CN`，其余一律是 `en`。Kite 的评论插件原样传站点语言（如 `zh-Hans`、`en-US`），由这条规则处理 |
 | `lazy` | 否 | 默认滚动到距离组件 800px 内才加载；`lazy="false"` 立即加载 |
 
 **属性变化即生效**：改 `page`、`page-key` 会换到另一个讨论页，改 `theme`、`accent`、`lang` 当场生效，元素移出文档就销毁 iframe。所以 VitePress、Docusaurus、Next.js 这类单页应用切换路由时，框架照常重新渲染这个元素即可，不需要调用任何 API。
@@ -74,8 +74,11 @@ https://comments.kite.plus/embed/v1/thread
     &title=<页面标题>
     &published=<发布时间，可省略>
     &lang=zh-CN&theme=light&accent=%233d65bd&font=serif
+    &cs=<宿主页的 color-scheme>
     &focus=<评论 ID，可省略>
 ```
+
+`theme` 是 `embed.js` 判断后的结果，只有 `light`、`dark`（`auto` 在宿主页上算完再传）；`cs` 是宿主页计算出的 `color-scheme`，iframe 设成一样的值（§7）；`lang` 已按 §2 归一。
 
 服务端收到后：
 
@@ -84,10 +87,13 @@ https://comments.kite.plus/embed/v1/thread
    - `url` 的 origin 是站点的已验证 origin（只接受 https）：正常模式，`frame-ancestors` 只列站点的已验证 origin。
    - `url` 是 `http://localhost:*` 或 `http://127.0.0.1:*`，且站点允许本地预览：本地预览模式。文档只读，不显示登录入口，`frame-ancestors` 只列这两个本地地址，已验证 origin 不在其中。所以本地预览放开不会让任何写操作暴露在本地页面里。
    - 其他情况：显示「此页面不属于这个站点」，`frame-ancestors` 仍只列已验证 origin。
+   - 站点没有已验证 origin（或站点不存在）时，`frame-ancestors 'none'`。
+   - **本地开发**：开发服务器开了 `COMMENTS_DEV_HTTP_ORIGINS` 时，http 的已验证 origin 也按正常模式处理，两个测试博客 `http://blog-a.localhost:8301`、`http://blog-b.localhost:8302` 靠它工作。`COMMENTS_PUBLIC_URL` 是 https 时服务拒绝启动（[sites.md §2](sites.md#2-注册与验证)）。
 3. 按 §5 算出讨论页标识，查出第一页评论，内联进 HTML。讨论页不存在就返回空列表，**不创建记录**。
 4. 响应头：
    - `Content-Security-Policy: frame-ancestors <按上面的模式>`。**这是「组件只能出现在已验证站点上」的真正保证**：iframe 里发出的请求，`Origin` 永远是 `comments.kite.plus`，服务端无法靠请求头判断宿主是谁，只能让浏览器按 `frame-ancestors` 拒绝在别处渲染。
-   - 其余 CSP：`default-src 'none'; script-src 'self'; style-src 'self' 'sha256-…'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; require-trusted-types-for 'script'`。不允许内联脚本；内联的只有首屏关键 CSS，构建时算出它的哈希写进 `style-src`（文档可被缓存，不能用每次响应都变的 nonce）；首屏数据放在 `<script type="application/json">` 里，浏览器不执行它，不受 `script-src` 限制。头像、图标都由自己的域名提供。
+   - 其余 CSP：`default-src 'none'; script-src 'self'; style-src 'self' 'sha256-…'; img-src 'self' data:; connect-src 'self'; form-action 'self' <身份服务的 origin>; base-uri 'none'; require-trusted-types-for 'script'; trusted-types kc`。不允许内联脚本；内联的只有组件的 CSS（整份，约 1.8 KB gzip），服务启动时算出它的哈希写进 `style-src`（文档可被缓存，不能用每次响应都变的 nonce）；首屏数据放在 `<script type="application/json">` 里，浏览器不执行它，不受 `script-src` 限制。头像、图标都由自己的域名提供。`form-action` 加上身份服务，是因为整页跳转的表单先到 `/auth/redirect` 再被重定向过去，浏览器对重定向也检查 `form-action`。评论 HTML 经名为 `kc` 的 Trusted Types 策略写入，只有它能创建。
+   - `Referrer-Policy: strict-origin`，不是 `no-referrer`（[login.md §4.4](login.md#44-整页跳转降级)）。
    - `Cache-Control: public, max-age=30`，不带 `Set-Cookie`。
 5. **收不到 Cookie**：反向代理对 iframe 文档、匿名读取接口、头像和 `embed.js` 删掉 Cookie 请求头。会话 Cookie 必须用 `__Host-` 前缀，路径只能是 `/`，浏览器会在这些请求上带上它；删掉之后，服务端在技术上就无法把读取和身份对上（[login.md §5](login.md#5-站点会话)）。
 6. `embed.js` 创建 iframe 时带上 `title`（「评论」/「Comments」）和 `allow="identity-credentials-get"`。后者给将来的 FedCM 预留（[login.md §9](login.md#9-以后fedcm)），现在加上没有副作用，以后再加就得让所有自托管 `embed.js` 的博主升级。
@@ -137,7 +143,8 @@ https://comments.kite.plus/embed/v1/thread
 校验规则：
 
 - `embed.js` 只接受 `event.origin === "https://comments.kite.plus"` 且 `event.source` 是自己创建的那个 iframe 的消息。
-- iframe 只接受 `event.source === window.parent`、且 `event.origin` 属于该站点已验证 origin 的消息；已验证 origin 列表由服务端写进 iframe 文档。
+- iframe 只接受 `event.source === window.parent`、且 `event.origin` 属于该站点已验证 origin 的消息；已验证 origin 列表由服务端写进 iframe 文档。本地预览模式另接受 `http://localhost:*`、`http://127.0.0.1:*`。
+- iframe 发给宿主页的消息目标 origin 写 `*`：iframe 不知道自己被哪个已验证 origin 嵌入，而消息内容（高度、偏移、评论数）对任何人都一样。
 - **消息里永远不出现凭据、读者身份和评论内容**。宿主页不应该知道正在看页面的是谁，评论数是唯一对外的数据，而且对所有读者都一样。`resize` 报告的高度同样不能泄露身份，界面上怎么保证见 §9。
 
 ---
@@ -181,6 +188,8 @@ https://comments.kite.plus/embed/v1/thread
 
 界面文字有 `zh-CN`、`en` 两套，从第一版起就有。
 
+**实现**：输入区的高度固定为 172px，未登录时同样大小的框里放「用 Kite Plus 账号登录」按钮，已登录时放头像、显示名、菜单和输入框；讨论页锁定、本地预览也用同样高度的框显示说明。访客表单、回复框、举报框、编辑框和删除的二次确认都是读者自己点开的。顶层评论已删除或被隐藏、下面还有可见回复时显示占位「该评论已删除」或「该评论已隐藏」（[api.md §1](api.md#1-约定)）。删除用组件内的二次确认，不用 `confirm()`：跨源 iframe 里的对话框会被浏览器拦掉。2026-10 的浏览器测试比较了同一讨论页登录前后、以及自己有一条待审评论时的 iframe 高度，完全相同（[roadmap.md](roadmap.md) 的 T8）。
+
 **高度不随身份变化**：宿主页能看到 iframe 的高度，所以对普通读者来说，同一个讨论页在任何人眼里都一样高：登录前后输入框一样高，自己待审核的评论不留在组件里。否则宿主页能看出读者有没有登录；博主甚至可以故意压着某位读者的评论不审，靠高度差认出这位读者什么时候来访。自己的评论显示的「编辑」「删除」放在每条评论都有的操作行里，不改变高度。管理者看到的界面不同，这不要紧：管理者就是博主和博主指定的人。C0 的 T8 会比较两种状态下的高度。
 
 ---
@@ -189,10 +198,11 @@ https://comments.kite.plus/embed/v1/thread
 
 | 项 | 预算或规则 |
 |---|---|
-| `embed.js` | ≤ 4 KB gzip；`Cache-Control: public, max-age=300`，改动 5 分钟内生效；带 `Access-Control-Allow-Origin: *`，配合 `crossorigin="anonymous"` |
-| 固定版本 | 同时发布 `/embed/v1.<次版本>.<补丁>.js`，内容不可变、长期缓存；控制台给出带 `integrity` 的写法，供锁定版本和自托管（§12） |
+| `embed.js` | ≤ 4 KB gzip（现在 2.7 KB）；`Cache-Control: public, max-age=300`，改动 5 分钟内生效；带 `Access-Control-Allow-Origin: *`，配合 `crossorigin="anonymous"` |
+| 固定版本 | 同时发布 `/embed/v1.<次版本>.<补丁>.js`，内容不可变、长期缓存；控制台从 `GET /api/v1/embed-info` 取地址和 `integrity`，给出锁定版本和自托管的写法（§12）。版本号是 `web/widget/package.json` 的 `version`；构建把当前版本写到 `dist/embed/`，旧版本发布时放进 `web/widget/public/embed/` 一起提交，继续可用 |
+| 服务的 origin | 构建出的 `embed.js` 里只有占位，服务端返回时换成自己的 `COMMENTS_PUBLIC_URL`，SRI 按换完的内容算。所以下载下来自托管的副本仍然指向服务 |
 | iframe 文档 | HTML 外壳、关键 CSS 和首屏 20 条顶层评论的数据，合计 ≤ 30 KB gzip |
-| 界面脚本 | ≤ 40 KB gzip，文件名带哈希，长期缓存 |
+| 界面脚本 | ≤ 40 KB gzip（现在 14 KB，Preact 加界面），文件名带哈希，长期缓存。`make web` 的构建在超出预算时失败 |
 | 第三方请求 | 无：不加载网络字体、统计脚本或外链头像 |
 | 懒加载 | `IntersectionObserver`，提前 800px；不支持时在 `load` 事件后加载 |
 | 超时 | 10 秒没收到 `ready`，元素内显示「评论加载失败，重试」，并在控制台输出可能的原因（站点未验证、当前 origin 不在站点里、网络问题） |

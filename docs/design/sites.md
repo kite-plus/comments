@@ -1,6 +1,6 @@
 # 站点、接入与迁移
 
-> 状态：规划草案，经独立审阅修订；§7 的导入格式细节待 C3 前核对 · 最近更新：2026-10-10
+> 状态：§2–§4、§6–§8 已实现（C2 加上 C3 的导入、认领、迁移、复查）；§7 的格式按各项目源码核对过，还要用真实数据验收 · 最近更新：2026-10-11
 > 表结构见 [data-model.md §3.3](data-model.md#33-站点)，嵌入代码见 [widget.md §2](widget.md#2-接入代码)。数量上限统一写在 [moderation.md §3.4](moderation.md#34-限额-待定)，保留期统一写在 [data-model.md §4](data-model.md#4-保留期)。
 
 ---
@@ -30,11 +30,15 @@
    | 文件 | `https://<主机名>/.well-known/kite-comments.txt`，内容就是令牌 | 同上 |
 
 4. 点「验证」后，服务端查询 DNS 或抓取页面：超时 10 秒，响应最多读 1 MB，只跟随同一主机内最多 3 次跳转；拒绝解析到内网地址（和 Explore 抓取的防护相同）。
-5. 至少有一个 origin 验证通过，站点就变为 `active`；C2 内测期间先进 `pending_review`，由平台批准。还没验证的 origin 不影响站点，只是不出现在 `frame-ancestors` 里，组件在那个 origin 上显示不出来。所以给正在使用的站点加一个别名，不会让站点下线。
+5. 至少有一个 origin 验证通过，站点就变为 `active`；C2 内测期间先进 `pending_review`，由平台批准（`internal/policy` 的 `SiteApprovalRequired`，C3 开放注册时关掉）。还没验证的 origin 不影响站点，只是不出现在 `frame-ancestors` 里，组件在那个 origin 上显示不出来。所以给正在使用的站点加一个别名，不会让站点下线。
 
-**验证记录请保留**。C3 起，服务端每 30 天复查一次每个已验证的 origin；另一个账号试图验证同一个 origin 时，立即复查一次。复查失败先通知所有者；连续 14 天失败，这个 origin 就从 `frame-ancestors` 里去掉，组件在那里不再显示，也不再接收来自那里的评论。
+实现上，令牌只存哈希：服务端查 DNS 和页面，把找到的候选值算哈希，和站点有效令牌的哈希比对。验证通过时记下那个令牌的哈希（`site_origins.proof_hash`），复查认它。没通过时，结果里写明查到了什么（没有 TXT 记录、首页没有那个 meta、文件取不到，或者都在但对不上）。
 
-**域名易主**：一个 origin 只能属于一个站点。新的控制者验证通过、且旧站点对这个 origin 的复查已经失败时，这个 origin 转给新站点。**旧站点的评论不随域名转移**：它们是旧博主和读者之间的数据，新的域名持有人无权接手。旧所有者仍可以登录导出。复查放在 C3，和开放注册同时上线：在那之前站点都经过平台批准，买下过期域名的人没法冒充旧博客。
+**本地开发**：`COMMENTS_DEV_HTTP_ORIGINS=true` 时站点可以用 http 的 origin，组件也能嵌进 http 页面；`COMMENTS_ALLOW_PRIVATE_NETWORKS=true` 时验证可以访问内网地址和任意端口，`*.localhost` 解析到本机。前一个开关在 `COMMENTS_PUBLIC_URL` 是 https 时拒绝启动；两个都只给开发机用。`comments dev seed` 直接把两个测试博客登记成已验证、已批准的站点。
+
+**验证记录请保留**。C3 起，服务端每 30 天复查一次每个已验证的 origin（已实现：worker 每小时挑出到期的，每次最多 50 个）；另一个账号试图验证同一个 origin 时，立即复查一次（未实现，见下）。复查失败先通知所有者；连续 14 天失败，这个 origin 就从 `frame-ancestors` 里去掉，组件在那里不再显示，也不再接收来自那里的评论，所有者再收到一封邮件。
+
+**域名易主**（未实现）：一个 origin 只能属于一个站点。新的控制者验证通过、且旧站点对这个 origin 的复查已经失败时，这个 origin 转给新站点。现在的实现里 origin 是 `site_origins` 的主键，别的站点加它直接 `409`，所以易主要等复查把它从旧站点去掉（去掉的只是验证状态，行还在）之后再做，需要一个「待转移」的状态，C3 开放注册前补上。**旧站点的评论不随域名转移**：它们是旧博主和读者之间的数据，新的域名持有人无权接手。旧所有者仍可以登录导出。复查放在 C3，和开放注册同时上线：在那之前站点都经过平台批准，买下过期域名的人没法冒充旧博客。
 
 **与 Explore 互认**（C4）：同一个 Kite Plus 账号已在 Explore 用 `_explore-claim.<主机名>` 认领过的博客（[Explore accounts.md §5](https://github.com/kite-plus/explore/blob/main/docs/design/accounts.md#5-数据模型)），在这里注册时视为已验证。
 
@@ -68,7 +72,7 @@
 - 列出站点的所有讨论页：标题、地址、评论数、最近一条评论的时间。
 - 锁定、解锁。
 - 修改标题、地址和发布时间。讨论页由第一条评论创建，标题和地址来自那次提交，只有管理者能改（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。
-- **迁移**：文章改了链接，把旧标识（如 `p:/2021/hello`）的评论迁到新标识；新标识已有评论时合并，按时间排序。每次迁移写进审核记录，可以撤销。
+- **迁移**：文章改了链接，把旧标识（如 `p:/2021/hello`）的评论迁到新标识；新标识已有评论时合并，按时间排序。每次迁移写进审核记录，可以撤销。实现上旧讨论页保留为空，撤销时把记录里的评论 ID 移回去；目标是这次迁移新建的、撤销后又空了的，一并删掉；同一次迁移只能撤销一次。目标可以给标识，也可以给新地址由服务端算标识。
 
 **删除站点**：嵌入立即失效；数据在恢复窗口内保留，期间可以找回，之后彻底删除（[data-model.md §4](data-model.md#4-保留期)）。删除前控制台会提示先导出。
 
@@ -151,7 +155,9 @@ Kite 的评论由官方插件 [`plugin-comments`](https://github.com/kite-plus/p
 
 1. **上传**：控制台上传文件，大小上限见 [moderation.md §3.4](moderation.md#34-限额-待定)。
 2. **预览**：解析后列出总数、各状态的数量、时间范围、带邮箱的访客评论数、解析失败的条目；按 [widget.md §5](widget.md#5-讨论页标识) 算出每条评论的讨论页标识，列出**对不上站点 origin 的地址**。原系统的页面标识规则各不相同：Waline 用 `decodeURI` 过的路径、不处理末尾斜杠，Twikoo 把 `/p` 和 `/p/` 视为同一页，Artalk 用未解码的路径；统一按我们的规则规范化后，预览里列出多个原标识合并成一个讨论页的情况。
-3. **映射**：博主可以加地址改写规则（旧域名 → 新域名、旧路径前缀 → 新前缀），或者给只存了路径的格式指定所属 origin。改完重新预览。
+3. **映射**：博主可以加地址改写规则（旧域名 → 新域名、旧路径前缀 → 新前缀），或者给只存了路径的格式指定所属 origin（默认是站点的主 origin）。改完重新预览。WordPress 另有一个选项：讨论页按地址（默认）或按 `wp:<文章 ID>` 标识，后者和 C4 的 WordPress 插件一致。
+
+   实现上的映射是 `{origin, rewrites: [{from, to}], wordpress_keys}`，改写按顺序做前缀替换。预览是 `{total, by_status, first, last, with_email, threads, failures: [{index, reason}], unmatched_origins, unmatched_comments, merged: [{key, pages}]}`。对不上站点 origin 的评论执行时跳过；回复的上级被跳过或在另一个讨论页时，回复改为顶层评论。
 4. **执行**：worker 在后台导入，以 `(站点, 来源, 原 ID)` 去重，重复导入不会产生重复评论。
    - 状态：已通过 → `published`，待审 → `pending`，垃圾 → `spam`。WordPress 只导入普通评论（`comment_type` 为空或 `comment`），跳过 pingback、trackback 和编辑备注；回收站里的评论导入为 `deleted`。
    - 结构：多层嵌套压成两层（[data-model.md §3.4](data-model.md#34-讨论页与评论)），保留「回复 @某人」的关系。
@@ -160,7 +166,9 @@ Kite 的评论由官方插件 [`plugin-comments`](https://github.com/kite-plus/p
    - 正文：Markdown 原样走 [moderation.md §5](moderation.md#5-内容格式) 的渲染；只有 HTML 的，先转成 Markdown 再渲染，转不了的标签只保留文字。Waline 默认把上传的图片以 base64 内嵌在正文里，一律替换成「[图片]」。
    - **不导入 IP 和 User-Agent**。访客邮箱规范化后加密保存，可以被认领；空邮箱和占位邮箱不能认领。
    - **丢弃原系统的密钥**：Waline 的 `Users` 表（含密码哈希和两步验证密钥）整张不读；Twikoo 的 `uid` 字段不导入。博主本人评论上的 `uid` 等于 Twikoo 管理员密码的 MD5，在自托管的 Twikoo 上能直接当管理员令牌用。
-5. **结果**：显示成功、跳过、失败的数量，失败条目可以下载。上传的原始文件可能带着上面这些密钥，按保留期尽早删除（[data-model.md §4](data-model.md#4-保留期)）。
+5. **结果**：显示成功、跳过、失败的数量；解析失败的条目在预览里列出序号和原因（下载失败条目还没做）。上传的原始文件可能带着上面这些密钥，按保留期尽早删除（[data-model.md §4](data-model.md#4-保留期)）。
+
+各格式实际读哪些字段（`internal/importer`，2026-10 按源码和样例实现，真实数据验收是 C3 的退出条件）：Waline 只读 `data.Comment` 的 `objectId`、`comment`、`insertedAt`（或 `createdAt`）、`mail`、`nick`、`link`、`url`、`status`、`pid`、`sticky`；Twikoo 读 `_id`、`nick`、`mail`、`link`、`href`（没有时 `url`）、`comment`、`pid`、`created`、`isSpam`、`top`，兼容 MongoDB 风格的 `$oid`、`$numberLong`；Artrans 读 `id`、`rid`、`content`、`date`、`nick`、`email`、`link`、`page_key`、`page_title`、`is_pending`、`is_pinned`；WXR 读每篇文章的 `link`、`title`、`post_id` 和其中的 `comment`，跳过 `comment_type` 不为空且不是 `comment` 的。HTML 转 Markdown 只认识段落、换行、粗体、斜体、删除线、代码、引用、列表和 http/https/mailto 链接，图片换成「[图片]」，脚本和样式整段丢掉。
 
 导入的评论不会自动归到已注册的账号下，要读者自己认领（§6）。
 
@@ -171,9 +179,9 @@ Kite 的评论由官方插件 [`plugin-comments`](https://github.com/kite-plus/p
 ## 8. 导出
 
 - **博主**：随时可以导出整个站点：讨论页、全部状态的评论、作者显示名和个人主页、访客填写的邮箱。格式有三种：
-  - **本服务的 JSON**，是主格式：带版本号，字段有类型，同时记录 `parent_id` 和 `root_id`、正文格式、包括删除和垃圾在内的状态、讨论页标识和地址、导入来源和原 ID。字段在 C2 定稿，写进仓库的 `docs/export-format.md`。
+  - **本服务的 JSON**，是主格式：带版本号，字段有类型，同时记录 `parent_id` 和 `root_id`、正文格式、包括删除和垃圾在内的状态、讨论页标识和地址、导入来源和原 ID。字段已定稿，见 [docs/export-format.md](../export-format.md)。
   - **Artrans**：Artalk 和 Twikoo 都能导入它。它没有版本号和正式规范，只作为兼容格式提供，不作为主格式。
-  - **WXR**（C3）：WordPress 和 Disqus 都能导入它。
+  - **WXR**（C3，未做）：WordPress 和 Disqus 都能导入它。
 - **访客的邮箱给博主，登录读者的邮箱不给**。访客是在这个站点的评论框里留下的邮箱，和博主自己搭 Waline 时能看到的一样；登录读者的身份属于 Kite Plus 账号，博主拿到的是这位读者在本站的作者 ID 和显示名。作者 ID 按站点区分，两个博主的导出之间对不上同一个读者（[data-model.md §3.1](data-model.md#31-账号与身份)）。隐私政策里要写清这一条。
 - **读者**：在读者中心随时导出自己的资料和全部评论（JSON）。
 

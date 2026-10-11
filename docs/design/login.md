@@ -1,6 +1,6 @@
 # 登录与会话
 
-> 状态：规划草案，经独立审阅修订；`[待定]` 项由 C0 实测决定 · 最近更新：2026-09-26
+> 状态：C2 已实现（代码在 `internal/api`、`internal/oidc`、`web/widget`）；本地 Chrome 和真实 ZITADEL 开发栈上的实测结论已回填，真机矩阵仍待 C0 · 最近更新：2026-10-11
 > 跨项目的身份约定（OIDC、`(iss, sub)`、各应用独立会话）写在 [Explore identity-and-comments.md](https://github.com/kite-plus/explore/blob/main/docs/design/identity-and-comments.md)，本文不重复，只写评论服务自己的部分。
 
 ---
@@ -48,6 +48,8 @@
 
 另有一个不是会话的第一方 Cookie `__Host-comments_binder`，只在登录流程里用，把登录交易绑在发起它的浏览器上（§4.5）。Explore 有自己的会话，与这些互不影响。
 
+**本地开发**：纯 http 的开发服务器上浏览器不接受 `__Host-` 前缀，三个 Cookie 改用 `comments_session`、`comments_binder`、`comments_site_<站点 ID>`，和 Explore 的做法一样。站点会话 Cookie 仍带 `Secure`、`SameSite=None`、`Partitioned`：Chrome 在 `http://localhost` 上接受，2026-10 实测分区键是 `http://blog-a.localhost` 这样的测试博客站点。
+
 身份服务会话是「一处登录」的那一处：有了它，每个站点第一次点「登录」都是瞬间完成的。站点会话是「这个博客记住我」：它存在按宿主站点分区的 Cookie 或存储里，所以一个站点一份，互不通用。
 
 ---
@@ -64,7 +66,7 @@
 | I | 身份服务 | `https://id.kite.plus` |
 | C | 评论服务的服务端 | `https://comments.kite.plus` |
 
-- `verifier` 是 W 生成的 32 字节随机数，`challenge = SHA-256(verifier)`。verifier 只存在于 W 里，兑换时直接发给 C；此外只有 challenge 会离开 W。
+- `verifier` 是 W 生成的 32 字节随机数，以 base64url 文本表示；`challenge = base64url(SHA-256(verifier 的 ASCII 文本))`，和 PKCE 的 S256 相同。verifier 只存在于 W 里，兑换时直接发给 C；此外只有 challenge 会离开 W。
 - `binder` 是每个浏览器一个的随机数，存在 `comments.kite.plus` 的第一方 Cookie 里。登录交易记下它的哈希，回调和确认时都要对得上。
 - **交易只能由 W 发起**：C 建交易的两个入口（§4.2 第 4 步、§4.4 第 2 步）都只接受 `comments.kite.plus` 自己页面发出的请求。这是整个协议的安全前提。
 
@@ -99,6 +101,8 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 
 **弹窗页和回调页都不能带 COOP 头**。Go 这边没有 Helmet 那种默认加 `COOP: same-origin` 的中间件，但以后加安全头时要记得排除这两个页面。
 
+**弹窗页的实现**：P 收到 `begin` 之前每 500 毫秒重发一次 `ready`，最多 7 次，防止 W 第一次没接住。2026-10 用本地 ZITADEL v4.19.4 实测：身份服务会话还在时，授权请求直接回跳，弹窗不到一秒自己关掉；ZITADEL 的登录页没有 COOP，`done` 能送到。
+
 **同类做法 `[EV]`**：Disqus 也是用弹窗登录，会话放在自己域名的 Cookie 里，另在 iframe 自己的存储里放一份备用会话，读者回到页面时重新检查登录。Giscus 则让 GitHub 授权后跳回宿主页，会话出现在宿主页的地址里，存进宿主页的 `localStorage`，再传给 iframe，宿主页能拿到这个凭据，这正是我们要避免的。
 
 **注册时去邮箱点了验证链接**：链接可能在新标签页打开，回调在那个标签页完成。只要是同一个浏览器（binder 在），交易照样完成，W 的轮询照样兑换成功。
@@ -128,7 +132,7 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 步骤：
 
 1. W 把 verifier 存进自己的 `localStorage`，键名带站点 ID，并写明过期时间。然后在点击处理里提交一个 `method="post"`、`target="_top"` 的表单到 `https://comments.kite.plus/auth/redirect`，字段是 `site`、`challenge` 和 `return`（当前文章地址）。表单由 iframe 提交，所以请求的 `Origin` 是 `comments.kite.plus`；跨源 iframe 让顶层页面跳转需要读者和它交互过，这次点击本身就满足，Chrome、Firefox、Safari 都是如此。
-2. C 像建交易接口一样确认请求来自自己的页面：`Origin` 必须是 `https://comments.kite.plus`，有 `Sec-Fetch-Site` 时必须是 `same-origin`（这是一次导航，所以不查 `Sec-Fetch-Mode`）。`return` 必须属于站点的已验证 origin（防开放跳转）。binder 同 §4.2。建交易（模式 `redirect`），跳到身份服务。
+2. C 像建交易接口一样确认请求来自自己的页面：`Origin` 必须是 `https://comments.kite.plus`，有 `Sec-Fetch-Site` 时必须是 `same-origin`（这是一次导航，所以不查 `Sec-Fetch-Mode`）。**W 的文档不能用 `Referrer-Policy: no-referrer`**：在这个策略下浏览器给表单导航发 `Origin: null`，入口只能拒绝（2026-10 在 Chrome 里实测到）。iframe 文档和服务自己的页面因此用 `strict-origin`，请求里仍然没有文章地址。`return` 必须属于站点的已验证 origin（防开放跳转）。binder 同 §4.2。建交易（模式 `redirect`），跳到身份服务。
 3. 回调同 §4.2 第 6 步，然后显示确认页：「以 某读者 的身份回到『某某的博客』（blog.example.com）？」页面里带着交易 ID。读者点「确认」提交 `POST /auth/confirm`：`Origin` 检查同上，binder 必须和交易一致，交易必须是 `redirect` 模式、状态为 `authenticated`。通过后交易变为 `confirmed`，跳回 `return` 加上 `#kc-login`。
 4. `embed.js` 看到 `#kc-login`，不等懒加载，立即加载组件、滚动到组件处，并用 `history.replaceState` 去掉这个标记（[widget.md §8](widget.md#8-深链接)）。W 从 `localStorage` 取回 verifier 兑换，成功后删掉它。
 
@@ -144,7 +148,7 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 | 交易有效期 | 30 分钟（注册可能要等验证邮件） |
 | binder Cookie | `__Host-comments_binder`：32 字节随机数，`HttpOnly`、`Secure`、`SameSite=Lax`、`Path=/`；每次建交易续期到 1 天后过期，回调时不删除。回调前可能经过 GitHub 等第三方站点，`Strict` 会丢 |
 | 兑换 | 只能一次；没见过的 challenge 返回 `202`，过期或已兑换返回 `410` |
-| 轮询 | 前 15 秒每秒一次，之后每 3 秒一次；宿主页不可见时暂停，回到页面时立即查一次；交易过期即停止。间隔 `[待定]`，C0 实测后定 |
+| 轮询 | 前 15 秒每秒一次，之后每 3 秒一次；宿主页不可见时暂停，回到页面时立即查一次；交易过期即停止。按这个间隔实现，本地 Chrome 加真实 ZITADEL 实测：已登录身份服务时一两次轮询就兑换成功，`done` 消息到达时立即再查一次。真机上的表现由 C0 复测，必要时再调 |
 | 限流 | 建交易和兑换都有上限，数值见 [moderation.md §3.4](moderation.md#34-限额-待定) |
 
 ---
@@ -161,6 +165,8 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 | 跨站请求伪造 | 宿主页和 W 共享同一个 Cookie 分区，宿主页发出的请求也会带上 Cookie，必须防御（下面） | 浏览器不会自动附带，天然免疫 |
 
 **怎么选**：兑换成功时（§4.2 第 7 步），服务端既设置分区 Cookie，也在响应里返回同一个令牌。W 随即不带 `Authorization`、只带 Cookie 请求一次 `GET /api/v1/widget/viewer`：认得出读者，说明 Cookie 可用，W 丢弃内存里的令牌；认不出，W 把令牌存进 `localStorage`，以后放在 `Authorization` 头里。服务端两种载体都接受，值是同一个令牌。
+
+**每次加载**：W 加载后带着站点会话请求一次 `GET /api/v1/widget/viewer?site=…`，决定显示哪种输入框、要不要改用管理者的读取接口。这是匿名读者之外唯一一个带凭据的请求，它不带文章地址，`Referer` 也只有服务自己的 origin，所以服务端知道「这位读者此刻打开了这个站点的某一页」，不知道是哪一页。会话的 `last_used_at` 和过期时间每天最多顺延一次。
 
 **为什么按站点命名**：浏览器按顶层站点（协议加可注册域名）分区。同一个可注册域名下的两个站点，比如 `a.example.edu.cn` 和 `b.example.edu.cn`，共用一个分区；只用一个 Cookie 名的话，登录其中一个会把另一个顶掉。服务端按请求里的 `site` 取对应的 Cookie。
 
@@ -194,7 +200,9 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 
 站点会话和控制台会话在签发时记下 ID Token 里的 `sid`（[data-model.md §3.2](data-model.md#32-会话与登录交易)），back-channel logout 靠它精确找到要删的会话。
 
-站点会话比身份服务会话长得多。更早的身份服务会话期间签发、还在有效期内的站点会话，不会因为这次退出而删除；想在所有站点退出，用读者中心的「退出所有站点」。身份服务会话自然过期时会不会也发 back-channel logout，由身份服务选型时实测（[identity architecture.md §3](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#3-选型) 的 S3）。
+站点会话比身份服务会话长得多。更早的身份服务会话期间签发、还在有效期内的站点会话，不会因为这次退出而删除；想在所有站点退出，用读者中心的「退出所有站点」。身份服务会话自然过期时**不发** back-channel logout：ZITADEL 只在会话被结束时发（登录页退出、`end_session`、管理员结束会话），最多重试 3 次（identity 仓库 README，2026-10）。
+
+**Logout Token 的校验**（`internal/oidc`）：签名、`iss`、`aud`、`iat` 在 10 分钟内、带 back-channel logout 事件、有 `sid` 或 `sub`、没有 `nonce`；带 `exp` 时不能已过期。有 `sid` 时删除这次身份服务会话签发的会话；只有 `sub` 时删除这个账号的全部会话。2026-10 用本地 ZITADEL 实测：管理员结束会话后几十毫秒内，这次会话签发的站点会话被删除。
 
 ---
 
@@ -217,9 +225,10 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 
 **事件**：
 
-- 身份服务推送到 `POST /hooks/idp`，C 校验签名，按事件 ID 去重（`idp_events`）。以 ZITADEL 为例，它用 Actions v2 推送 `user.removed`、`user.deactivated`、`user.locked` 等事件，签名在 `ZITADEL-Signature` 头里。
+- 身份服务推送到 `POST /hooks/idp`，C 校验签名，按事件 ID 去重（`idp_events`）。以 ZITADEL 为例，它用 Actions v2 推送 `user.removed`、`user.deactivated`、`user.reactivated`、`user.locked`、`user.unlocked`，签名在 `ZITADEL-Signature` 头里：`t=<秒>,v1=<十六进制>`，是以签名密钥对 `<t>.<原始请求体>` 做的 HMAC-SHA256，时间偏差超过 5 分钟拒绝，多个 `v1` 有一个对上即可。事件 ID 是 `<aggregateID>:<sequence>`，`aggregateID` 就是 `sub`。
+- **推送只是提示**：各服务的同步令牌能读到所有推送目标的签名密钥，一个服务被攻破就能伪造发给另一个服务的推送（identity 仓库 README）。所以配置了 API 令牌时，C 收到事件（推送或对账）后先用 `GET /v2/users/{sub}` 读这个用户的当前状态，按状态处理：`404` 或已删除 → 删除数据；停用、锁定 → 暂停；正常 → 解除身份服务造成的暂停。没有令牌时（测试）按事件类型处理。只有处理成功才记入 `idp_events`，失败的留给对账重试。
 - 用户删除 → 按上面处理；用户停用或锁定 → 暂停（撤销全部会话，不能发表）；重新启用 → 解除暂停。
-- **推送不可靠**：以 ZITADEL 为例，投递 5 分钟内没成功就丢弃，评论服务停机维护时必然漏收。所以每小时另跑一次对账，用事件查询 API 取上次之后的用户事件，补上漏收的。对账的游标存在数据库里。
+- **推送不可靠**：以 ZITADEL v4.19 为例，每个事件只投递一次，10 秒超时，失败不重试，评论服务停机维护时必然漏收。所以 worker 每小时另跑一次对账：用事件查询 API（`POST /admin/v1/events/_search`，按 `eventTypes`、`aggregateTypes` 过滤，`from` 不含边界）取游标之后的用户事件，补上漏收的。游标是最后一个事件的 `creationDate`，存在 `idp_sync`；查询从游标往前 5 分钟开始，防止乱序提交的事件漏掉，重复的按事件 ID 跳过。第一次对账从 30 天前开始。
 
 删除在几秒内生效。备份里的数据随备份轮换消失（保存期见 [architecture.md §9](architecture.md#9-部署与运维)），隐私政策里写明这一点。
 
