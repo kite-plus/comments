@@ -1,4 +1,5 @@
-import { Outlet, useNavigation } from 'react-router'
+import { useEffect, useRef } from 'react'
+import { Outlet, useLocation, useNavigation } from 'react-router'
 import { useI18n } from '@/i18n'
 import { useDocumentTitle, useRouteTitle } from '@/hooks/use-title'
 import { cn } from '@/lib/utils'
@@ -37,10 +38,24 @@ function NavigationProgress() {
   )
 }
 
+/** After client-side navigation, screen readers start at the new page. */
+function useFocusMainOnNavigate() {
+  const { pathname } = useLocation()
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      return
+    }
+    document.getElementById('main')?.focus({ preventScroll: true })
+  }, [pathname])
+}
+
 export function AppShell() {
   const { t } = useI18n()
   const title = useRouteTitle()
   useDocumentTitle(title ? t(title) : undefined)
+  useFocusMainOnNavigate()
 
   return (
     <SidebarProvider defaultOpen={readSidebarOpen()}>
