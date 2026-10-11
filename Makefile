@@ -95,18 +95,22 @@ dev-blogs:
 
 PNPM ?= pnpm
 
-# The widget needs Node, which a Go-only contributor should not have to
-# install, so it has its own targets. Vite empties dist, so the placeholder
-# that keeps go build working is put back afterwards.
+# The widget and console need Node, which a Go-only contributor should not
+# have to install, so they have their own targets. Vite empties dist, so the
+# placeholders that keep go build working are put back afterwards.
 web:
 	cd web/widget && $(PNPM) install --frozen-lockfile && $(PNPM) build
 	@touch web/widget/dist/.gitkeep
+	cd web/console && $(PNPM) install --frozen-lockfile && $(PNPM) build
+	@touch web/console/dist/.gitkeep
 
 web-check:
 	cd web/widget && $(PNPM) check
+	cd web/console && $(PNPM) typecheck && $(PNPM) lint
 
 web-test:
 	cd web/widget && $(PNPM) test
+	cd web/console && $(PNPM) test
 
 # Browser tests with the installed Google Chrome against the harness; see
 # the README. e2e-real runs against the local identity stack and make dev.
