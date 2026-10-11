@@ -1,6 +1,6 @@
 # 路线图
 
-> 状态：C2 的代码已完成，C3 部分完成，都只在本地跑过；进度按下面的表如实标注 · 最近更新：2026-10-11
+> 状态：C2 的代码已完成，C3 部分完成，都只在本地跑过；部署地已定（与 Explore 同机，部署文件本机演练过）；进度按下面的表如实标注 · 最近更新：2026-10-11
 > 每个阶段只在退出条件全部满足后才进入下一阶段。进度如实标注，沿用组织主页「如实标注进度」的原则。
 
 ---
@@ -128,7 +128,7 @@
 | 读者中心：我的评论、通知、资料、已登录的站点、导出、删除账号 | 接口完成；页面在另一条分支 |
 | 博主导出（JSON 和 Artrans） | 完成 |
 | Kite 评论插件 | 未做（另一个仓库） |
-| 运维：部署、备份、监控；隐私政策和服务条款；`abuse@kite.plus` | 只有 `deploy/` 下的文件，未部署，没有备份和监控，没有政策文本 |
+| 运维：部署、备份、监控；隐私政策和服务条款；`abuse@kite.plus` | 部署文件含边缘模式（共用 Explore 的 Caddy，[architecture.md §9](architecture.md#9-部署与运维)），本机按服务器的布局演练过；`scripts/backup.sh` 加密备份并可复制到异地，本机恢复进空库过；未部署，没有镜像发布流程和监控，没有政策文本 |
 
 退出条件都还没有满足：没有外部博客在用，安全检查清单（[login.md §8](login.md#8-威胁模型与安全检查)）没有逐项过，没有做恢复演练；体积预算已达标（embed.js 2.7 KB、界面 14 KB）。
 
@@ -202,7 +202,9 @@
 | 事项 | 写在哪里 | 什么时候定 |
 |---|---|---|
 | 整页跳转的触发条件；轮询间隔 | [login.md §4](login.md#4-组件登录协议) | 已按设计实现并在桌面 Chrome 测过；C0 真机复测后定稿 |
-| 评论服务加入后机器怎么扩 | [architecture.md §9](architecture.md#9-部署与运维) | C2 开工前 |
+| ~~评论服务加入后机器怎么扩~~ | [architecture.md §9](architecture.md#9-部署与运维) | 2026-10-11 定：和身份服务一起放在与 Explore 同机的美国服务器上，共用 Explore 的 Caddy，资源够用 |
+| 镜像发布流程（现在在服务器上构建） | [architecture.md §9](architecture.md#9-部署与运维) | C2 上线前 |
+| 备份异地存放位置 | [architecture.md §9](architecture.md#9-部署与运维)，和身份服务一起定 | identity I2 前 |
 | 境外运营的合规结论请懂行的人确认 | [architecture.md §5](architecture.md#5-部署地与合规) | C2 上线前 |
 | 被封锁时的备用域名预案 | [architecture.md §11](architecture.md#11-风险) | C2 上线前 |
 | 限额数值 | [moderation.md §3.4](moderation.md#34-限额-待定) | C2 内测后 |
@@ -213,4 +215,4 @@
 | FedCM 端点怎么和身份服务的会话打通；评论里的图片 | [login.md §9](login.md#9-以后fedcm)、[§6](#6-c4-生态) | C4 |
 | 对外的产品名 | [README.md](README.md) | C3 公开前 |
 
-身份服务的待定事项（选型、登录保持时长、Google 登录、服务商、SMTP、Explore 过渡期）在 [identity 路线图 §6](https://github.com/kite-plus/identity/blob/main/docs/design/roadmap.md#6-待定事项)。
+身份服务的待定事项（Google 登录、SMTP、预发布的二级子域证书、Explore 过渡期等）在 [identity 路线图 §6](https://github.com/kite-plus/identity/blob/main/docs/design/roadmap.md#6-待定事项)。

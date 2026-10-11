@@ -22,7 +22,7 @@
 - 站点导出为 JSON（格式见 `docs/export-format.md`）、Artrans 或 WordPress WXR；可以导入本服务的 JSON、Waline、Twikoo、Artrans 和 WordPress WXR，有预览和地址改写；读者可以认领用自己邮箱留下的访客评论。
 - 读者中心和控制台的接口：我的评论（可以删除，不论站点状态）、通知、资料、已登录的站点、导出，删除本服务里的数据时可选评论怎么处理。
 - 身份服务的用户事件经推送和每小时的对账到达，只当作提示：先读取用户当前状态，停用就暂停，重新启用就恢复，锁定不处理；事件查询确认删除之后才删除数据。
-- 部署文件：serve、worker、migrate 共用一个镜像，Compose 文件，读取请求删掉 Cookie 的 Caddyfile，环境变量示例。
+- 部署文件：serve、worker、migrate 共用一个镜像；Compose 文件，含给同机共用 Caddy 的边缘模式，此时 HTTP 服务（Compose 服务名 `server`）接到共用的 `kite-edge` 网络，不占宿主机端口；读取请求删掉 Cookie 的 Caddy 规则，独立模式的 Caddyfile 和边缘模式的站点文件共用；环境变量示例；用 age 加密、可经 rclone 复制到异地的备份脚本。
 
 ### 安全
 

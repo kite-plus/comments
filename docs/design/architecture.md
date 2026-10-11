@@ -1,6 +1,6 @@
 # Kite Plus 评论 总体设计
 
-> 状态：C2 的代码已完成并在本地对着身份服务的开发栈跑通（[roadmap.md §4](roadmap.md#4-c2-评论内测)）；未上线；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-11
+> 状态：C2 的代码已完成并在本地对着身份服务的开发栈跑通（[roadmap.md §4](roadmap.md#4-c2-评论内测)）；未上线；部署在与 Explore 同机的服务器上（§5、§9，本机演练过）；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-11
 > 文档约定沿用 [Kite 设计文档](https://github.com/kite-plus/kite/blob/main/docs/design/README.md)：正文中文，专有名词保留英文；`[设计中]` 表示实现前还可调整，`[待定]` 表示明确推迟决策；`[EV]` 表示结论有实测或既有项目佐证。
 > 与本文冲突的实现，先改文档，再改代码。
 > 本文是总体设计；登录、组件、数据模型、接口、审核、站点接入和路线图各有专门的文档，索引见 [README.md](README.md)。
@@ -146,11 +146,13 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 
 ## 5. 部署地与合规
 
-**决定：部署在境外，首选香港。** 服务商和线路 `[待定]`，C1 开工前定。要求到国内三大运营商都有优化线路（如 CN2 GIA），支持 IPv4 和 IPv6，有快照；C0 期间从国内三网实测延迟。
+**决定：部署在境外，先放在与 Explore 同机的美国 RackNerd 服务器上**（2026-10-11 维护者决定），和身份服务同一台（[identity architecture.md §4](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#4-部署)）。原来首选香港，到国内三网有优化线路（如 CN2 GIA）时延迟最低；现在用已有的机器，不另买服务器，运维集中在一处。代价是到国内的延迟更高、晚高峰更明显，前面的 Cloudflare 免费套餐在中国大陆也没有节点；以 Explore 现在的实际访问为参考，C2 内测前从国内三网实测一次。
+
+以后迁到香港仍然可行：评论服务的 origin 和身份服务的 issuer 都是域名，不绑机器，迁移就是在新机器上恢复备份（§9）再改 DNS。
 
 以下是 2026-09 查到的事实和我们的理解，不是法律意见。
 
-| | 境内运营 | 境外运营（香港） |
+| | 境内运营 | 境外运营 |
 |---|---|---|
 | 前置手续 | ICP 备案：`.plus` 可以备案（工信部批准的域名注册管理机构名单里有它），但北京、贵州、江苏等地的个人备案不允许博客、论坛类交互内容，实际上要以公司备案；上线 30 天内做公安备案，申报「交互式服务」；上线前按《具有舆论属性或社会动员能力的互联网信息服务安全评估规定》做安全评估 | 不需要 |
 | 评论者实名 | 必须。《互联网跟帖评论服务管理规定》第 4 条要求「后台实名、前台自愿」，按手机号等方式认证，不得向未认证的用户提供服务。而阿里云、腾讯云 2025 年起不再受理个人的短信资质 | 不适用 |
@@ -158,7 +160,7 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 | 审核 | 要有审核、巡查、应急处置、举报受理等制度，审核人员与服务规模相适应 | 按 [moderation.md](moderation.md) |
 | 日志 | 网络日志至少保存 6 个月 | 按 [data-model.md §4](data-model.md#4-保留期) |
 | IP 属地 | 《互联网用户账号信息管理规定》第 12 条要求在账号信息页显示 | 不适用 |
-| 速度 | 快 | 香港到国内约 20–60 ms，晚高峰取决于线路 |
+| 速度 | 快 | 香港到国内约 20–60 ms；美国到国内通常在 130 ms 以上；晚高峰都取决于线路 |
 | 封锁 | 不会 | 有可能，而且没有预警 |
 
 **结论**：对一个人维护的开源项目，境内运营的准入条件和持续义务（公司主体、评论者实名、审核团队、半年日志）都不现实；访客评论这个迁移时的关键功能也做不了。境外运营的代价是跨境延迟和被封锁的风险，在 §11 处理。
@@ -244,8 +246,9 @@ comments/
 │   ├── widget/     embed.js、iframe 界面和弹窗页脚本（Preact）
 │   └── console/    读者中心与站点控制台（React，另一条分支开发）
 ├── e2e/            浏览器测试（Playwright，用本机的 Google Chrome）、测试桩、导出导入往返测试
-├── deploy/         Dockerfile、docker-compose.yaml、docker-compose.dev.yaml、Caddyfile、.env.example、.env.dev.example
-├── scripts/check-imports.sh
+├── deploy/         Dockerfile、docker-compose.yaml、docker-compose.edge.yaml（边缘模式）、docker-compose.dev.yaml、
+│                   Caddyfile（独立模式）、edge/（给共用 Caddy 的站点文件和 Cookie 规则）、.env.example、.env.dev.example
+├── scripts/        check-imports.sh、backup.sh
 ├── testdata/schema/columns.txt
 └── docs/           design/ 和 export-format.md
 ```
@@ -283,10 +286,17 @@ comments/
 
 ## 9. 部署与运维
 
-- **机器**：和身份服务同一台香港服务器（[identity architecture.md §4](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#4-部署)），共用反向代理；评论服务用自己的 PostgreSQL 库和角色，Docker Compose 里加上 `comments serve`、`comments worker` 和一次性的 `migrate`。评论服务加入后机器怎么扩 `[待定]`。Explore 继续单独部署。
-- **备份**：每天 `pg_dump` 评论服务的库，加密后异地保存 30 天；每个阶段结束做一次恢复到空机器的演练。身份服务的备份由 identity 负责（[identity architecture.md §5](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#5-运维)）。
+- **机器**：和身份服务一样，在与 Explore 同机的美国 RackNerd 服务器上（§5；机器配置、资源预算和 Cloudflare 设置见 [identity architecture.md §4](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#4-部署)）。评论服务有自己的 Compose 项目（PostgreSQL、一次性的 `migrate`、`server` 即 `comments serve`、`worker`）和内部网络，不和别的服务共用数据库容器。本机演练空闲时一套约 50 MB（空库）`[EV]`，这台机器的余量够用。
+- **入口（边缘模式，生产用这个）**：整台机器只有 Explore 的 Caddy 占 80 和 443，为所有主机名终止 TLS、申请证书。`deploy/docker-compose.edge.yaml`（由 `.env` 的 `COMPOSE_FILE` 打开）让 `server` 不占宿主机端口，接到共用的 Docker 网络 `kite-edge`（172.30.10.0/24），别名 `comments`，`COMMENTS_TRUSTED_PROXIES` 设为这个网段；`worker`、`migrate`、PostgreSQL 不接 kite-edge。Caddy 的站点文件 `deploy/edge/comments.caddy` 连同 `comments-routes.caddyfile` 放进 Explore 的 `sites/` 目录。Caddy 只信任 Cloudflare 的地址段，从右往左找出读者，再只把这一个地址写进 `X-Forwarded-For` 交给评论服务，读者自己写进去的值取不到 `[EV]`。
+- **Compose 服务名叫 `server`，不叫 `serve`**：Explore 的 Caddy 同时在 Explore 的网络上用 `serve` 这个名字，接上 kite-edge 的容器再叫 `serve`，Docker 只会答其中一个网络的地址，Caddy 可能把 Explore 的请求送到评论服务 `[EV]`。
+- **Cookie 规则只写一处**：`deploy/edge/comments-routes.caddyfile`（[widget.md §4](widget.md#4-iframe-地址) 第 5 条）。边缘模式的站点文件和独立模式的 `deploy/Caddyfile` 都导入它，只有上游不同。本机演练：匿名读取路径上的 Cookie 被删，登录后的路径、更深的路径和写请求都保留 `[EV]`。
+- **独立模式**：不设 `COMPOSE_FILE` 时，`server` 只监听宿主机的 `127.0.0.1:8081`，给同机的反向代理用，`deploy/Caddyfile` 是它的站点块。生产不用。
+- **预发布**：`comments.staging.kite.plus` 是同一台机器上的另一份检出和 Compose 项目（`comments-staging`，别名 `comments-staging`，网段 10.90.1.0/24，见 `deploy/.env.example`），平时停着，测试和升级时启动。它的二级子域在 Cloudflare 上要先解决证书（identity architecture.md §4）。
+- **Cloudflare**：设置同身份服务（identity architecture.md §4）。评论服务另要注意缓存：保持默认，不加 Cache Everything 一类的规则。默认只按扩展名缓存，正好覆盖 `embed.js`（5 分钟）、带版本号的 `/embed/v1.x.y.js` 和 `/static/widget/*`（一年）、生成的头像，都遵守源站的 `Cache-Control`；匿名读取接口的 JSON 按 `Accept-Language` 变（`Vary`），而 Cloudflare 除了压缩不认 `Vary`，缓存了就会把一种语言的结果给所有人；iframe 文档 `/embed/v1/thread` 的 CSP 跟着站点状态变。
+- **镜像**：还没有发布流程，第一次部署在服务器的检出里用 `deploy/Dockerfile` 构建（[README](../../README.md#deployment)）；发布流程 `[待定]`，C2 上线前。
+- **备份**：每天 `scripts/backup.sh`：`pg_dump` 评论服务的库，会话、登录交易、通知、发信队列只留表结构不留数据（[data-model.md §1](data-model.md#1-数据分类)），用 age 公钥加密，在本机和异地各保存 30 天。异地复制用 rclone（`BACKUP_REMOTE`），存放位置和身份服务一起定 `[待定]`（identity I2 前），地址不写进仓库。`COMMENTS_DATA_KEYS`、`COMMENTS_HMAC_KEY`、`COMMENTS_IP_KEY` 不进备份，离线保存，没有它们备份里的邮箱解不开。每个阶段结束做一次恢复到空机器的演练，步骤见 [README](../../README.md#deployment)；2026-10-11 本机演练：备份解密后恢复进空库，29 张表、迁移版本 2 `[EV]`。身份服务的备份由 identity 负责（[identity architecture.md §5](https://github.com/kite-plus/identity/blob/main/docs/design/architecture.md#5-运维)）。
 - **监控**：外部探测 `comments.kite.plus` 的 `/healthz`，探测点包括国内三网；对错误率、发信队列积压、发信失败、磁盘和备份结果设告警。
-- **升级**：评论服务随发版升级，数据库迁移只向前。
+- **升级**：评论服务随发版升级，数据库迁移只向前；先在预发布上跑。
 - **故障**：评论服务不可用只影响组件本身（[widget.md §10](widget.md#10-加载体积与降级)）；在官网新闻和 GitHub 上说明情况。
 
 ---
@@ -311,7 +321,7 @@ comments/
 |---|---|---|
 | 博主不愿意把评论交给集中服务 | 没人用 | §0.1 的硬约束；Kite 默认内置；导入加认领；抓住 LeanCloud 停服前的迁移窗口 |
 | 功能不如 Waline、Twikoo 丰富：它们都有表情包、图片上传、点赞、浏览量、IP 属地，还能把新评论推送到 Telegram、飞书等 | 博主觉得是降级 | 主打统一身份、追溯和免运维；点赞和推送到聊天工具的 Webhook 放 C4；浏览量和 IP 属地有意不做（§2.2） |
-| 境外服务在国内变慢或被封锁 | 评论区打不开 | 香港机房加优化线路；组件不依赖任何在国内不可用的第三方（Google、Gravatar、GitHub 头像都不直连）；国内三网探测；组件失败不影响宿主页；备用域名的应急预案 `[待定]` |
+| 境外服务在国内变慢或被封锁 | 评论区打不开 | 先用与 Explore 同机的美国服务器，慢得影响使用时迁到香港加优化线路（§5）；组件不依赖任何在国内不可用的第三方（Google、Gravatar、GitHub 头像都不直连）；国内三网探测；组件失败不影响宿主页；备用域名的应急预案 `[待定]` |
 | 合规边界不清（§5） | 有不确定性 | 收集最少的个人信息；认真处理举报；上线前咨询 |
 | 单点故障 | 所有接入的评论区同时不可用 | 失败隔离；备份和恢复演练；及时说明情况 |
 | 有人用评论区发布违法内容，或冒充别人的博客 | 平台责任、域名声誉受损 | 站点验证；内测期人工批准站点；举报；暂停站点 |

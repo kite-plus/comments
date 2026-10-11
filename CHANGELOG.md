@@ -22,7 +22,7 @@ The first code: the service of the invite-only stage, not yet deployed. It runs 
 - Export of a site as JSON (documented in `docs/export-format.md`), Artrans or WordPress WXR; import from this service's JSON, Waline, Twikoo, Artrans and WordPress WXR with a preview and address rewriting; readers can claim the guest comments they left with their email address.
 - Reader center and console APIs: my comments (with deleting one, on any site), notifications, profile, signed-in sites, export, deleting this service's data with the reader's choice for their comments.
 - The identity service's user events arrive by webhook and by hourly reconciliation and are treated as hints: the user's current state is read first, deactivation suspends and reactivation resumes, locking changes nothing, and data is deleted only when the event search confirms the removal.
-- Deployment files: one image for serve, worker and migrate, Compose, a Caddyfile that strips cookies from reads, and environment examples.
+- Deployment files: one image for serve, worker and migrate; Compose, with an edge mode for a Caddy shared with other services on the server, where the HTTP server (Compose service `server`) joins the shared `kite-edge` network instead of publishing a port; Caddy routes that strip cookies from reads, used by both the standalone Caddyfile and the edge site files; environment examples; and an age-encrypted backup that can copy itself off the server with rclone.
 
 ### Security
 

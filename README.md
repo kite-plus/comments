@@ -20,7 +20,8 @@ The service is not deployed yet. The backend and the widget of the invite-only s
 | `web/console` | Reader center and site console (React); only its build placeholder lives on `main` |
 | `migrations` | PostgreSQL schema (goose); `testdata/schema/columns.txt` guards it |
 | `e2e` | Browser tests with Playwright and the installed Google Chrome, their harness, and the export and import round trip |
-| `deploy` | Dockerfile, Compose files, Caddyfile, environment examples |
+| `deploy` | Dockerfile, Compose files (standalone and edge mode), Caddy site files, environment examples |
+| `scripts` | Import boundary check, encrypted backups |
 
 The Go binary embeds `web/widget/dist` and `web/console/dist`; both directories hold a committed `.gitkeep`, so `go build` works without Node. Run `make web` first for a binary that serves the widget.
 
@@ -54,6 +55,31 @@ make e2e-real   # the browser test against the real local identity stack and mak
 ```
 
 `make test` runs the store, protocol and round-trip tests when the development database answers on port 5434 (or `COMMENTS_TEST_DATABASE_URL` is set) and skips them otherwise. The browser tests use `channel: "chrome"`; Playwright's own browsers are never downloaded (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`). `make e2e-real` needs `make dev`, `make dev-worker` and `make dev-blogs` running; it creates and deletes a throwaway user with the identity stack's dev admin token.
+
+## Deployment
+
+Not deployed yet. Production and staging will run on the US server that also hosts Explore and the identity service, behind Explore's Caddy, the only thing on ports 80 and 443 there ([architecture.md section 9](docs/design/architecture.md#9-部署与运维)).
+
+- `deploy/docker-compose.yaml` runs PostgreSQL, the migration, the HTTP server (service `server`) and the worker. With `COMPOSE_FILE=docker-compose.yaml:docker-compose.edge.yaml` in `deploy/.env` (edge mode, as in production), the server publishes no port and joins the shared `kite-edge` network as `comments`, trusting `X-Forwarded-For` from that network only. Without it (standalone mode), the server listens on `127.0.0.1:8081` for a reverse proxy on the same host, and `deploy/Caddyfile` is the site block.
+- `deploy/edge/comments.caddy` and `comments-routes.caddyfile` go into Explore's `sites/` directory, then `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` there. The routes file holds the Cookie rules for both modes.
+- No workflow publishes the image yet. Build it in the checkout on the server, with `COMMENTS_VERSION` in `deploy/.env` set to the same tag:
+
+  ```sh
+  git clone https://github.com/kite-plus/comments /opt/comments && cd /opt/comments
+  docker build -f deploy/Dockerfile --build-arg VERSION=$(git describe --tags --always) -t ghcr.io/kite-plus/comments:<tag> .
+  cp deploy/.env.example deploy/.env && chmod 600 deploy/.env   # fill in, uncomment COMPOSE_FILE
+  cd deploy && docker compose up -d --wait
+  ```
+
+- Staging is a second checkout (`/opt/comments-staging`) whose `.env` also sets `COMPOSE_PROJECT_NAME`, `COMMENTS_EDGE_ALIAS` and `COMMENTS_SUBNET` (see `deploy/.env.example`); its Caddy file is `deploy/edge/comments-staging.caddy`. It runs only for tests and upgrades.
+- `scripts/backup.sh` (daily from cron) writes an age-encrypted dump to `BACKUP_DIR` and, with `BACKUP_REMOTE` set, copies it off the server with rclone. The keys in `.env` are not in it; keep them offline. To restore into an empty stack of the same version:
+
+  ```sh
+  age -d -i age.key /var/backups/comments/comments-20261011T031500Z.tar.age | tar -xf - comments.dump
+  cd deploy && docker compose up -d --wait postgres
+  docker compose exec -T postgres pg_restore -U comments -d comments --no-owner --exit-on-error < ../comments.dump
+  docker compose up -d --wait
+  ```
 
 ## License
 
