@@ -29,7 +29,8 @@ export function ConsoleCommentCard({
 }) {
   const { t } = useI18n()
   const { author } = comment
-  const name = author.kind === 'former_user' ? t('author.former') : author.name
+  // Deleted comments come back as placeholders without an author.
+  const name = author.kind === 'former_user' ? t('author.former') : author.name || '\u2014'
   return (
     <article
       className={cn('flex gap-3 rounded-lg border bg-card p-4', className)}
@@ -55,7 +56,7 @@ export function ConsoleCommentCard({
           </span>
           {author.badge === 'owner' && <Badge variant='secondary'>{t('author.owner')}</Badge>}
           {author.kind === 'guest' && <Badge variant='outline'>{t('author.guest')}</Badge>}
-          {author.kind === 'external' && <Badge variant='outline'>{t('author.external')}</Badge>}
+          {author.kind === 'external' && author.name && <Badge variant='outline'>{t('author.external')}</Badge>}
           {author.email && (
             <span className='inline-flex items-center gap-1 text-xs text-muted-foreground'>
               <Mail className='size-3.5' aria-hidden='true' />

@@ -87,10 +87,11 @@ export const me = {
       n.myComment
     ),
 
-  notifications: async (cursor?: string | null): Promise<NotificationPage> => {
+  /** withMutes: false skips the mute list, for the sidebar's unread count. */
+  notifications: async (cursor?: string | null, { withMutes = true } = {}): Promise<NotificationPage> => {
     const [raw, muted] = await Promise.all([
       request<Raw>('/api/v1/me/notifications', { query: { cursor, limit: PAGE_SIZE.other } }),
-      mutedThreads(),
+      withMutes ? mutedThreads() : new Set<string>(),
     ])
     return n.notificationPage(raw, muted)
   },

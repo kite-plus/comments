@@ -242,7 +242,7 @@ export function AppSidebar() {
   const sites = useQuery({ queryKey: keys.sites, queryFn: () => api.sites.list() })
   const badge = useQuery({
     queryKey: [...keys.notifications, 'badge'],
-    queryFn: () => api.me.notifications(null),
+    queryFn: () => api.me.notifications(null, { withMutes: false }),
     refetchInterval: 60_000,
   })
   const unread =

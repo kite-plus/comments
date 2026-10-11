@@ -76,7 +76,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
-    await api.auth.logout()
+    try {
+      await api.auth.logout()
+    } catch (error) {
+      // Already gone on the server counts as signed out.
+      if (!api.isApiError(error, 'unauthorized')) throw error
+    }
     api.setCsrfToken(undefined)
     setEnded('signed-out')
     queryClient.removeQueries()

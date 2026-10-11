@@ -142,7 +142,7 @@ export default function BansPage() {
                 <div className='min-w-0 flex-1 space-y-1'>
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge variant='outline'>{t(`bans.target.${ban.target}`)}</Badge>
-                    <span className='font-medium break-all'>{ban.label}</span>
+                    <span className='font-medium break-all'>{ban.label || '\u2014'}</span>
                     {ban.site_id === null && (
                       <Badge variant='secondary' title={t('bans.platformHint')}>
                         <Globe2 />
