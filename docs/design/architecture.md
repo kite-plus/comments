@@ -269,8 +269,8 @@ comments/
 | `COMMENTS_DATA_KEYS` | 邮箱加密密钥，可以有多把，按版本号轮换 |
 | `COMMENTS_HMAC_KEY` | 邮箱 HMAC 的密钥，不能轮换 |
 | `COMMENTS_IP_KEY` | IP HMAC 的主密钥，按月派生 |
-| `COMMENTS_IDP_WEBHOOK_SECRET` | 校验身份服务事件的签名 |
-| `COMMENTS_IDP_API_TOKEN` | 身份服务的 API 令牌（只读），用来对账和在处理事件前读取用户当前状态（[login.md §7](login.md#7-账号删除与停用)）；不设就不对账 |
+| `COMMENTS_IDP_WEBHOOK_SECRET` | 校验身份服务事件的签名；要和 `COMMENTS_IDP_API_TOKEN` 一起设，只设它服务拒绝启动：推送只是提示，要用 API 令牌向身份服务核实后才处理 |
+| `COMMENTS_IDP_API_TOKEN` | 身份服务的 API 令牌（只读），用来对账和在处理事件前读取用户当前状态（[login.md §7](login.md#7-账号删除与停用)）；不设就不对账，也不能接收推送 |
 | `COMMENTS_IDP_API_URL` | 身份服务 API 的地址，默认就是 issuer |
 | `COMMENTS_SMTP_URL`、`COMMENTS_MAIL_FROM` | 发信：`smtp://[user:pass@]host:port`（服务器支持时 STARTTLS）或 `smtps://`；不设时邮件留在队列里 |
 | `COMMENTS_LOG_LEVEL` | 日志级别 |

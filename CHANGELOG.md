@@ -33,7 +33,7 @@ Fixes from the 2026-10 security review, before any deployment:
 - The console's return path refuses control characters and anything but a local path; the login popup gets a random window name each time.
 - Imports need an approved site, are limited per day and in size, are parsed as a stream up to a comment cap, keep only the parsed comments with encrypted addresses for at most 24 hours, and age from the import, so imported spam can still be restored.
 - Only a verified origin belongs to a site; unverified claims expire with their token, and an account may own at most 10 sites and create 5 a day.
-- Reconciliation gets past bursts of identity events, and pushed events no longer mark an event ID as handled.
+- Reconciliation gets past bursts of identity events, pushed events no longer mark an event ID as handled, and an event's type never decides anything: `COMMENTS_IDP_WEBHOOK_SECRET` without `COMMENTS_IDP_API_TOKEN` refuses to start.
 - Guest reply mail needs consent from the same browser; queued mail is dropped with the account and rechecked against the reader's current settings when it is sent; SMTP errors are logged without addresses.
 - The site session cookie slides with the session, banned readers cannot edit, page titles from the first commenter are cut and cleaned in mail, future page dates are refused, the spam-domain rule also checks homepages and internationalized names, exports leave out the text of comments their authors deleted, a claim applies once, and an account's email follows the identity service at each sign-in.
 - `COMMENTS_ALLOW_PRIVATE_NETWORKS` refuses an https public URL, verification errors no longer show resolved addresses, and console pages are served only with their CSP.
