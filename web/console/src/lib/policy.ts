@@ -11,6 +11,7 @@ export const POLICY = {
   homepageMax: 300,
   siteNameMax: 100,
   verificationTokenDays: 7,
+  publishedFutureHours: 24,
 } as const
 
 /**

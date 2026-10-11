@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import * as api from '@/api'
 import type { Thread, ThreadPatch } from '@/api'
 import { useI18n } from '@/i18n'
+import { POLICY } from '@/lib/policy'
 import { keys, useApiMutation, useCursorList } from '@/hooks/use-api'
 import { CursorList, EmptyState, ExternalLink, PageHeader, Spinner, TimeAgo } from '@/components/common'
 import { Field, describedBy } from '@/components/common/form'
@@ -51,6 +52,7 @@ function EditDialog({
   const [url, setUrl] = useState(thread.url)
   const [published, setPublished] = useState(toLocalInput(thread.page_published_at))
   const [error, setError] = useState<string | null>(null)
+  const [publishedError, setPublishedError] = useState<string | null>(null)
   const save = useApiMutation((patch: ThreadPatch) => api.sites.updateThread(siteId, thread.id, patch), {
     invalidate: [keys.threads(siteId), keys.site(siteId)],
     onSuccess: () => {
@@ -66,6 +68,11 @@ function EditDialog({
       return
     }
     setError(null)
+    if (published && new Date(published).getTime() > Date.now() + POLICY.publishedFutureHours * 3600_000) {
+      setPublishedError(t('threads.publishedFuture'))
+      return
+    }
+    setPublishedError(null)
     const patch: ThreadPatch = {}
     if (title.trim() !== thread.title) patch.title = title.trim()
     if (url.trim() !== thread.url) patch.url = url.trim()
@@ -98,9 +105,14 @@ function EditDialog({
               onChange={(e) => setUrl(e.target.value)}
             />
           </Field>
-          <Field id='thread-published' label={t('threads.fieldPublished')} hint={t('threads.publishedHint')}>
+          <Field
+            id='thread-published'
+            label={t('threads.fieldPublished')}
+            hint={t('threads.publishedHint')}
+            error={publishedError}
+          >
             <Input
-              {...describedBy('thread-published', null, true)}
+              {...describedBy('thread-published', publishedError, true)}
               type='datetime-local'
               value={published}
               onChange={(e) => setPublished(e.target.value)}

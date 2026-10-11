@@ -180,8 +180,8 @@ function normalizeOrigin(raw: unknown, ctx: Ctx): string {
   if (url.pathname !== '/' || url.search || url.hash)
     fail(400, 'invalid_request', 'origin 只包含协议、主机和端口。', 'An origin is only scheme, host and port.')
   const origin = url.origin.toLowerCase()
-  const owner = ctx.db.sites.find((s) => s.status !== 'deleted' && s.origins.some((o) => o.origin === origin))
-  if (owner)
+  // Only a verified origin belongs to a site (sites.md 2).
+  if (ctx.db.sites.some((s) => s.origins.some((o) => o.origin === origin && o.verified_at)))
     fail(409, 'conflict', '这个 origin 已属于另一个站点。', 'That origin already belongs to another site.')
   return origin
 }
@@ -251,6 +251,14 @@ const routes: [string, string, Handler][] = [
       .sort(newer)
       .map((c) => myComment(ctx.db, c))
     return json(paginate(mine, ctx.url, 20, 50))
+  }],
+
+  ['DELETE', '/api/v1/me/comments/:id', (ctx) => {
+    requireUser(ctx)
+    const c = ctx.db.comments.find((x) => x.mine && x.id === ctx.params.id && x.status !== 'deleted')
+    if (!c) fail(404, 'not_found', '没有找到。', 'Not found.')
+    c!.status = 'deleted'
+    return empty()
   }],
 
   ['GET', '/api/v1/me/notifications', (ctx) => {
@@ -480,6 +488,14 @@ const routes: [string, string, Handler][] = [
     // In the fake, hosts containing "fail" never verify; the rest verify by DNS.
     const results = pending.map((o) => {
       o.last_checked_at = now
+      const taken = ctx.db.sites.some((s) => s !== site && s.origins.some((x) => x.origin === o.origin && x.verified_at))
+      if (taken)
+        return {
+          origin: o.origin,
+          verified: false,
+          method: null,
+          detail: ctx.zh ? '这个 origin 已被另一个站点验证。' : 'Another site has verified this origin.',
+        }
       const ok = !new URL(o.origin).hostname.includes('fail')
       if (ok) o.verified_at = now
       return {

@@ -86,6 +86,8 @@ export const me = {
       }),
       n.myComment
     ),
+  /** Works on any site that still exists, whatever its status. */
+  deleteComment: (id: string) => request<void>(`/api/v1/me/comments/${enc(id)}`, { method: 'DELETE' }),
 
   /** withMutes: false skips the mute list, for the sidebar's unread count. */
   notifications: async (cursor?: string | null, { withMutes = true } = {}): Promise<NotificationPage> => {

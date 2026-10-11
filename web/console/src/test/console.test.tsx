@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { SITE_IDS } from '@/mocks/db'
 import { renderApp } from './render'
@@ -161,6 +161,27 @@ describe('moderation', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Move' }))
     expect(await screen.findByText('Moved 2 comments')).toBeInTheDocument()
     expect(writes().at(-1)).toMatchObject({ method: 'POST', body: { to_key: 'p:/about-me' } })
+  })
+
+  it('corrects a title set by the first commenter, refusing a future date', async () => {
+    const { user, writes } = renderApp(`${NOTES}/threads`)
+    const list = await screen.findByRole('list', { name: 'Threads' })
+    const row = within(list).getAllByRole('listitem').find((li) => li.textContent?.includes('p:/about'))!
+    await user.click(within(row).getByRole('button', { name: /More actions/ }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+    const before = writes().length
+    fireEvent.change(within(dialog).getByLabelText('Post published at'), { target: { value: '2999-01-01T00:00' } })
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(within(dialog).getByText('The post cannot be published in the future.')).toBeInTheDocument()
+    expect(writes()).toHaveLength(before)
+    fireEvent.change(within(dialog).getByLabelText('Post published at'), { target: { value: '2020-01-01T00:00' } })
+    const title = within(dialog).getByRole('textbox', { name: 'Title' })
+    await user.clear(title)
+    await user.type(title, 'About me')
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Thread saved')).toBeInTheDocument()
+    expect(writes().at(-1)).toMatchObject({ method: 'PATCH', body: { title: 'About me', published_at: expect.stringMatching(/^2020-01-01T/) } })
   })
 
   it('lists reported comments in their own tab', async () => {

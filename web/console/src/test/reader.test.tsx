@@ -17,6 +17,20 @@ describe('reader center', () => {
     expect(view).toHaveAttribute('target', '_blank')
   })
 
+  it('deletes one of my comments after confirming', async () => {
+    const { user, writes } = renderApp('/me')
+    const list = await screen.findByRole('list', { name: 'My comments' })
+    const pending = within(list).getAllByRole('listitem').find((li) => li.textContent?.includes('zig build'))!
+    const button = within(pending).getByRole('button', { name: /^Delete this comment on / })
+    await user.click(button)
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Delete this comment?')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(within(pending).getByText('This comment was deleted.')).toBeInTheDocument())
+    expect(writes().at(-1)).toMatchObject({ method: 'DELETE', path: expect.stringMatching(/^\/api\/v1\/me\/comments\/\d+$/) })
+    expect(within(pending).queryByRole('button', { name: /^Delete this comment on / })).toBeNull()
+  })
+
   it('shows an empty state when there is nothing yet', async () => {
     renderApp('/me', { setup: (db) => db.comments.forEach((c) => (c.mine = false)) })
     expect(await screen.findByText('You have not posted any comments yet.')).toBeInTheDocument()

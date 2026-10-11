@@ -139,6 +139,12 @@ export const en: Catalog = {
   'myComments.hint.spam': 'This comment was marked as spam and is not shown on the page.',
   'myComments.hint.deleted': 'This comment was deleted.',
   'myComments.claimLink': 'Commented as a guest before? Claim those comments',
+  'myComments.delete': 'Delete',
+  'myComments.deleteLabel': 'Delete this comment on {site}',
+  'myComments.deleteTitle': 'Delete this comment?',
+  'myComments.deleteDesc':
+    'It disappears from the page at once; replies to it stay. This works even when the site is suspended or switched off.',
+  'myComments.deleted': 'Comment deleted',
 
   'notifications.title': 'Notifications',
   'notifications.desc':
@@ -506,6 +512,7 @@ export const en: Catalog = {
   'threads.publishedHint':
     'Used to close comments on old posts. Leave it empty to count from the first comment.',
   'threads.urlInvalid': 'Addresses start with https://.',
+  'threads.publishedFuture': 'The post cannot be published in the future.',
   'threads.saved': 'Thread saved',
   'threads.move': 'Move to a new key...',
   'threads.moveTitle': 'Move thread',
