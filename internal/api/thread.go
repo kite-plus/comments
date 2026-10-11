@@ -241,8 +241,7 @@ func (s *Server) commentsBody(c *gin.Context, site model.Site, key string, newes
 	ctx := c.Request.Context()
 	t, err := s.Store.ThreadByKey(ctx, site.ID, key)
 	if errors.Is(err, store.ErrNotFound) {
-		closed := false
-		return gin.H{"data": []any{}, "next_cursor": nil, "count": 0, "locked": false, "closed": closed, "partial": false}, nil
+		return gin.H{"data": []any{}, "next_cursor": nil, "count": 0, "locked": false, "closed": false, "partial": false}, nil
 	}
 	if err != nil {
 		return nil, err

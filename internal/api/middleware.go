@@ -225,7 +225,7 @@ func (l *limiter) count(key string) int {
 	return w.n
 }
 
-// clientLabel sums up a user agent as "Browser · OS" for the reader center;
+// clientLabel sums up a user agent as a browser and system name for the reader center;
 // the user agent itself is not stored (data-model.md section 3.2).
 func clientLabel(ua string) string {
 	browser := "Browser"
