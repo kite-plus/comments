@@ -1,0 +1,347 @@
+/* Tokens follow Explore's web/src/styles/theme.css so the console looks like
+   the rest of Kite Plus; base rules follow Explore's admin.css. */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    @supports (color: light-dark(white, black)) {
+      &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+        @slot;
+      }
+    }
+  }
+}
+
+:root {
+  color-scheme: light dark;
+  --background: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+  --foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --card: light-dark(oklch(1 0 0), oklch(0.205 0 0));
+  --card-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --popover: light-dark(oklch(1 0 0), oklch(0.205 0 0));
+  --popover-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --primary: light-dark(oklch(0.205 0 0), oklch(0.922 0 0));
+  --primary-foreground: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
+  --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --muted-foreground: light-dark(oklch(0.556 0 0), oklch(0.708 0 0));
+  --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --destructive: light-dark(oklch(0.577 0.245 27.325), oklch(0.704 0.191 22.216));
+  --warning: light-dark(oklch(0.666 0.179 58.318), oklch(0.769 0.188 70.08));
+  --success: light-dark(oklch(0.527 0.154 150.069), oklch(0.723 0.219 149.579));
+  --info: light-dark(oklch(0.546 0.245 262.881), oklch(0.707 0.165 254.624));
+  /* The blue of the Kite Plus mark, lighter on dark pages. */
+  --brand: light-dark(#4a77d6, #8fb0f2);
+  --border: light-dark(oklch(0.922 0 0), oklch(1 0 0 / 10%));
+  --input: light-dark(oklch(0.922 0 0), oklch(1 0 0 / 15%));
+  --ring: light-dark(oklch(0.708 0 0), oklch(0.556 0 0));
+  --radius: 0.625rem;
+
+  /* The sidebar matches the page, as in shadcn-admin. */
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Browsers without light-dark(), such as Safari before 17.5, keep the light
+   theme. */
+@supports not (color: light-dark(white, black)) {
+  :root {
+    color-scheme: light;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --warning: oklch(0.666 0.179 58.318);
+    --success: oklch(0.527 0.154 150.069);
+    --info: oklch(0.546 0.245 262.881);
+    --brand: #4a77d6;
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-info: var(--info);
+  --color-brand: var(--brand);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  /* System fonts only: no web fonts, no third-party requests, and CJK text
+     renders with the fonts the reader already has. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  html {
+    @apply overflow-x-hidden;
+  }
+  body {
+    @apply min-h-svh w-full bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar;
+  }
+
+  /* Radix locks scrolling for modals; sticky headers must still work. */
+  body[data-scroll-locked] {
+    overflow: unset !important;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Inputs below 16px make mobile browsers zoom in on focus. */
+  @media screen and (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+
+@utility no-scrollbar {
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@utility faded-bottom {
+  @apply after:pointer-events-none after:absolute after:inset-s-0 after:bottom-0 after:hidden after:h-32 after:w-full after:rounded-b-2xl after:bg-[linear-gradient(180deg,transparent_10%,var(--background)_70%)] md:after:block;
+}
+
+.CollapsibleContent {
+  overflow: hidden;
+}
+.CollapsibleContent[data-state="open"] {
+  animation: slideDown 300ms ease-out;
+}
+.CollapsibleContent[data-state="closed"] {
+  animation: slideUp 300ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .CollapsibleContent[data-state] {
+    animation: none;
+  }
+}
+
+/* Toasts, as in Explore's admin: the icon alone carries the state, and a one-line
+   toast hugs its text rather than spanning sonner's full width. sonner adds
+   its own unlayered stylesheet at runtime, so these rules stay out of every
+   layer and carry .app-toaster to win on specificity. */
+.app-toaster [data-sonner-toast][data-styled="true"] {
+  padding: 12px 14px;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.14);
+  width: fit-content;
+  min-width: 220px;
+  max-width: 340px;
+}
+/* sonner only pins left- and right-docked toasts; a narrower centered one
+   would otherwise sit at the left of the toaster. */
+.app-toaster [data-sonner-toast][data-x-position="center"] {
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+}
+/* On phones sonner sets the toaster to 100% width on top of its side offsets,
+   which only its own full-width toasts allow for. */
+@media (max-width: 600px) {
+  .app-toaster[data-sonner-toaster] {
+    width: auto;
+  }
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-title] {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-description] {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-content] {
+  gap: 3px;
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-icon] {
+  width: 16px;
+  height: 16px;
+  color: var(--foreground);
+}
+.app-toaster [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--success);
+}
+.app-toaster [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--warning);
+}
+.app-toaster [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--destructive);
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-button] {
+  height: auto;
+  padding: 4.5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--foreground);
+  background: var(--background);
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-button]:hover {
+  background: var(--accent);
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-close-button] {
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+  background: var(--background);
+  border-color: var(--border);
+}
+.app-toaster [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+/* Rendered comment HTML from the server (moderation.md section 5). */
+.comment-body {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.comment-body > * + * {
+  margin-top: 0.5em;
+}
+.comment-body a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.comment-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.comment-body pre {
+  overflow-x: auto;
+  background: var(--muted);
+  border-radius: 6px;
+  padding: 0.5em 0.75em;
+}
+.comment-body pre code {
+  background: none;
+  padding: 0;
+}
+.comment-body blockquote {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 0.75em;
+  color: var(--muted-foreground);
+}
+.comment-body ul {
+  list-style: disc;
+  padding-inline-start: 1.25em;
+}
+.comment-body ol {
+  list-style: decimal;
+  padding-inline-start: 1.25em;
+}
