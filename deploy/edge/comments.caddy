@@ -1,0 +1,6 @@
+# comments.kite.plus on the Caddy shared with Explore (edge mode, see
+# docker-compose.edge.yaml). Copy this file and comments-routes.caddyfile
+# into that Caddy's sites/ directory and reload it.
+{$COMMENTS_SITE:comments.kite.plus} {
+	import comments-routes.caddyfile {$COMMENTS_UPSTREAM:comments:8081}
+}

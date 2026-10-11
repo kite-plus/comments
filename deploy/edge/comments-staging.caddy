@@ -1,0 +1,7 @@
+# comments.staging.kite.plus on the Caddy shared with Explore: the staging
+# project (COMMENTS_EDGE_ALIAS=comments-staging). Shares
+# comments-routes.caddyfile with production; while staging is stopped, the
+# site answers 502.
+{$COMMENTS_STAGING_SITE:comments.staging.kite.plus} {
+	import comments-routes.caddyfile {$COMMENTS_STAGING_UPSTREAM:comments-staging:8081}
+}

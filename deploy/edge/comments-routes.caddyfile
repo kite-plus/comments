@@ -1,0 +1,41 @@
+# The comment service's routes inside a Caddy site block, imported with the
+# upstream as the only argument: by deploy/Caddyfile for a reverse proxy on
+# the same host, and by comments.caddy and comments-staging.caddy on the
+# Caddy shared with Explore. Not named *.caddy, so that Caddy's
+# `import sites/*.caddy` leaves it alone. There is no log directive, so
+# readers' addresses stay out of access logs.
+#
+# Reads carry no session (docs/design/widget.md section 4, item 5): the
+# Cookie header is removed before the request reaches the service for the
+# iframe document, the anonymous read APIs, avatars, embed.js and the
+# widget's static files. Session cookies are __Host- cookies with Path=/,
+# so browsers would otherwise send them on all of these. The service drops
+# the header on the same routes too, as a second layer.
+
+encode zstd gzip
+
+@anonymous {
+	method GET HEAD
+	path /embed.js /embed/* /static/widget/* /avatars/* /api/v1/threads/comments /api/v1/embed-info
+}
+@anonymousReplies {
+	method GET HEAD
+	path_regexp ^/api/v1/comments/[0-9]+/replies$
+}
+handle @anonymous {
+	request_header -Cookie
+	reverse_proxy {args[0]} {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+handle @anonymousReplies {
+	request_header -Cookie
+	reverse_proxy {args[0]} {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+handle {
+	reverse_proxy {args[0]} {
+		header_up X-Forwarded-For {client_ip}
+	}
+}

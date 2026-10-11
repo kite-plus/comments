@@ -1,0 +1,24 @@
+# Edge mode, how production runs: the Caddy that Explore runs on the same
+# server terminates TLS for every hostname there and reaches the server
+# over the shared kite-edge network; nothing is published on the host.
+# Turn it on in .env:
+#   COMPOSE_FILE=docker-compose.yaml:docker-compose.edge.yaml
+# Caddy's site block is deploy/edge/comments.caddy (comments-staging.caddy
+# for staging). See docs/design/architecture.md section 9.
+services:
+  server:
+    ports: !reset []
+    environment:
+      # Only Caddy names the reader; it reaches the server from kite-edge.
+      COMMENTS_TRUSTED_PROXIES: ${KITE_EDGE_SUBNET:-172.30.10.0/24}
+    networks:
+      default:
+      kite-edge:
+        aliases:
+          # Caddy's upstream; comments-staging for the staging project.
+          - ${COMMENTS_EDGE_ALIAS:-comments}
+
+networks:
+  # Created once per server: docker network create --subnet 172.30.10.0/24 kite-edge
+  kite-edge:
+    external: true

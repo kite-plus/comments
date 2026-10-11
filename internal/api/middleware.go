@@ -43,8 +43,8 @@ func (s *Server) recover() gin.HandlerFunc {
 
 // noCookies drops the Cookie header before anything can read it: the iframe
 // document, anonymous reads, avatars and embed.js never see a session. The
-// reverse proxy strips it first (deploy/Caddyfile); this is the second
-// layer (widget.md section 4, item 5).
+// reverse proxy strips it first (deploy/edge/comments-routes.caddyfile);
+// this is the second layer (widget.md section 4, item 5).
 func noCookies(c *gin.Context) {
 	c.Request.Header.Del("Cookie")
 	c.Next()

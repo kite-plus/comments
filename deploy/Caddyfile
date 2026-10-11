@@ -1,39 +1,8 @@
-# The comment service's site block for the reverse proxy it shares with the
-# identity service. There is no log directive, so readers' addresses stay
-# out of access logs.
-#
-# Reads carry no session (docs/design/widget.md section 4, item 5): the
-# Cookie header is removed before the request reaches the service for the
-# iframe document, the anonymous read APIs, avatars, embed.js and the
-# widget's static files. Session cookies are __Host- cookies with Path=/,
-# so browsers would otherwise send them on all of these. The service drops
-# the header on the same routes too, as a second layer.
+# The comment service's site block for a Caddy on the same host, which
+# reaches the server on the host's loopback (standalone mode). The routes,
+# including which reads lose their Cookie header, are in
+# edge/comments-routes.caddyfile, shared with the edge mode that production
+# uses.
 {$COMMENTS_PUBLIC_HOST:comments.kite.plus} {
-	encode zstd gzip
-
-	@anonymous {
-		method GET HEAD
-		path /embed.js /embed/* /static/widget/* /avatars/* /api/v1/threads/comments /api/v1/embed-info
-	}
-	@anonymousReplies {
-		method GET HEAD
-		path_regexp ^/api/v1/comments/[0-9]+/replies$
-	}
-	handle @anonymous {
-		request_header -Cookie
-		reverse_proxy 127.0.0.1:8081 {
-			header_up X-Forwarded-For {client_ip}
-		}
-	}
-	handle @anonymousReplies {
-		request_header -Cookie
-		reverse_proxy 127.0.0.1:8081 {
-			header_up X-Forwarded-For {client_ip}
-		}
-	}
-	handle {
-		reverse_proxy 127.0.0.1:8081 {
-			header_up X-Forwarded-For {client_ip}
-		}
-	}
+	import edge/comments-routes.caddyfile {$COMMENTS_UPSTREAM:127.0.0.1:8081}
 }

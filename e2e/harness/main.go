@@ -1,9 +1,10 @@
 // Command harness runs everything the browser tests need on loopback
 // ports: a fake identity service, the comment service behind a stand-in for
-// the reverse proxy (deploy/Caddyfile's cookie rules), the two test blogs and
-// an unrelated site. It prints its addresses as one JSON line and serves
-// until stdin closes. It needs COMMENTS_TEST_DATABASE_URL and the built
-// widget (make web).
+// the reverse proxy (the cookie rules of
+// deploy/edge/comments-routes.caddyfile), the two test blogs and an
+// unrelated site. It prints its addresses as one JSON line and serves until
+// stdin closes. It needs COMMENTS_TEST_DATABASE_URL and the built widget
+// (make web).
 package main
 
 import (
@@ -188,7 +189,8 @@ func run() error {
 	return nil
 }
 
-// anonymous are the routes deploy/Caddyfile strips the Cookie header on.
+// anonymous are the routes deploy/edge/comments-routes.caddyfile strips the
+// Cookie header on.
 var anonymous = regexp.MustCompile(`^(/embed\.js|/embed/.*|/static/widget/.*|/avatars/.*|/api/v1/threads/comments|/api/v1/embed-info|/api/v1/comments/[0-9]+/replies)$`)
 
 // proxy stands in for the reverse proxy: on anonymous GETs it removes the
