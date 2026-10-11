@@ -388,6 +388,11 @@ func (s *Server) postComment(c *gin.Context) {
 		return
 	}
 
+	// Length and links first: a rejected body does not use up a limit.
+	r, ok := s.validateBody(c, in.Body)
+	if !ok {
+		return
+	}
 	n := store.NewComment{SiteID: site.ID, ThreadKey: key, ThreadURL: truncate(in.URL, policy.ThreadURLRunes),
 		ThreadTitle: truncate(in.Title, policy.ThreadTitleRunes), PagePublished: published, ParentID: parentID,
 		IPHMAC: s.Keys.IPHMAC(c.ClientIP(), s.Now())}
@@ -435,10 +440,6 @@ func (s *Server) postComment(c *gin.Context) {
 		return
 	}
 
-	r, ok := s.validateBody(c, in.Body)
-	if !ok {
-		return
-	}
 	body := strings.TrimSpace(in.Body)
 	dup, err := s.Store.RecentDuplicate(ctx, n.AuthorUserID, n.AuthorEmailHMAC, body)
 	if err != nil {
