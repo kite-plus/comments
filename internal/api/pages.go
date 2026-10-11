@@ -19,7 +19,7 @@ const pageCSS = `:root{color-scheme:light dark;--fg:#1f2328;--muted:#59636e;--bg
 	`strong{color:var(--fg)}form{margin-top:1.5rem;display:flex;gap:.75rem;flex-wrap:wrap}` +
 	`button{font:inherit;padding:.5rem 1.1rem;border-radius:.4rem;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}` +
 	`button.primary{background:var(--accent);border-color:var(--accent);color:#fff}[hidden]{display:none!important}` +
-	`.foot{margin-top:2rem;font-size:.85rem;display:flex;align-items:center;gap:.35rem}.foot svg{width:1.15em;height:1.15em;color:#4a77d6}`
+	`.foot{margin-top:2rem;font-size:.85rem;display:flex;align-items:center;gap:.35rem}.foot svg{width:1.45em;height:1.45em;color:#4a77d6}`
 
 // markSVG is the Kite Plus mark, in the current text color.
 const markSVG = `<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round" transform="translate(32 32) scale(0.82) translate(-32 -32)">` +
