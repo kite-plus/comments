@@ -1,0 +1,13 @@
+{
+  "name": "@kite-plus/comments-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:real": "playwright test -c playwright.real.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  },
+  "packageManager": "pnpm@10.11.1"
+}

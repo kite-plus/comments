@@ -281,6 +281,10 @@ func TestThreadDocumentModes(t *testing.T) {
 		mode, _ := data["mode"].(string)
 		return mode, w.Header().Get("Content-Security-Policy"), w.Header().Get("Cache-Control")
 	}
+	if w := e.do(req{method: "GET", path: "/embed/v1/thread?site=" + e.site.PublicID + "&url=" + url.QueryEscape(blogPage)}); w.Header().Get("Referrer-Policy") != "strict-origin" {
+		// With no-referrer, the redirect login's form would carry Origin: null.
+		t.Errorf("iframe referrer policy = %q", w.Header().Get("Referrer-Policy"))
+	}
 	mode, csp, cache := doc(e.site.PublicID, blogPage)
 	if mode != modeNormal || !strings.Contains(csp, "frame-ancestors "+blogOrigin) || cache != "public, max-age=30" ||
 		!strings.Contains(csp, "require-trusted-types-for 'script'") || !strings.Contains(csp, "script-src 'self'") {

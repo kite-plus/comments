@@ -9,7 +9,7 @@ LDFLAGS  := -s -w \
 	-X github.com/kite-plus/comments/internal/buildinfo.Date=$(DATE)
 
 .PHONY: all build test test-race cover fmt vet lint check-imports check-tidy check tidy clean \
-	db-up db-down migrate dev dev-worker dev-seed dev-blogs web web-check web-test e2e docker
+	db-up db-down migrate dev dev-worker dev-seed dev-blogs web web-check web-test e2e e2e-real docker
 
 all: check build
 
@@ -108,9 +108,13 @@ web-check:
 web-test:
 	cd web/widget && $(PNPM) test
 
-# Browser tests with the installed Google Chrome; see e2e/README.md.
-e2e:
-	cd e2e && $(PNPM) install --frozen-lockfile && COMMENTS_TEST_DATABASE_URL='$(TEST_DATABASE_URL)' $(PNPM) test
+# Browser tests with the installed Google Chrome against the harness; see
+# the README. e2e-real runs against the local identity stack and make dev.
+e2e: web
+	cd e2e && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 $(PNPM) install --frozen-lockfile && COMMENTS_TEST_DATABASE_URL='$(TEST_DATABASE_URL)' $(PNPM) test
+
+e2e-real:
+	cd e2e && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 $(PNPM) install --frozen-lockfile && $(PNPM) test:real
 
 IMAGE ?= ghcr.io/kite-plus/comments
 

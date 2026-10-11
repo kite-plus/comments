@@ -1,0 +1,3 @@
+.harness.json
+test-results/
+playwright-report/

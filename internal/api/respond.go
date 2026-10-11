@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -110,6 +111,9 @@ func (s *Server) fail(c *gin.Context, status int, code string, detail ...string)
 // and reported as internal.
 func (s *Server) storeError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, context.Canceled):
+		// The client went away; nobody reads the answer.
+		c.AbortWithStatus(499)
 	case errors.Is(err, store.ErrNotFound):
 		s.fail(c, http.StatusNotFound, codeNotFound)
 	case errors.Is(err, store.ErrConflict):

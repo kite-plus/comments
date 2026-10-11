@@ -84,3 +84,35 @@ func Conn(t testing.TB, s Schema) *pgx.Conn {
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	return conn
 }
+
+// Open creates and migrates a fresh schema outside a test, for the browser
+// test harness; drop removes it.
+func Open(ctx context.Context, url, prefix string) (s *store.Store, schema string, drop func(), err error) {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, "", nil, err
+	}
+	schema = prefix + hex.EncodeToString(b[:])
+	admin, err := pgx.Connect(ctx, url)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		_ = admin.Close(ctx)
+		return nil, "", nil, err
+	}
+	drop = func() {
+		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+		_ = admin.Close(context.Background())
+	}
+	if s, err = store.OpenSchema(ctx, url, schema); err != nil {
+		drop()
+		return nil, "", nil, err
+	}
+	if err := s.Migrate(ctx); err != nil {
+		s.Close()
+		drop()
+		return nil, "", nil, err
+	}
+	return s, schema, drop, nil
+}

@@ -47,11 +47,15 @@ type Worker struct {
 	warnedNoMail time.Time
 }
 
+func (w *Worker) now() time.Time {
+	if w.Now == nil {
+		return time.Now()
+	}
+	return w.Now()
+}
+
 // Run loops until ctx ends.
 func (w *Worker) Run(ctx context.Context) error {
-	if w.Now == nil {
-		w.Now = time.Now
-	}
 	mail := time.NewTicker(5 * time.Second)
 	minute := time.NewTicker(time.Minute)
 	hour := time.NewTicker(time.Hour)
@@ -77,7 +81,7 @@ func (w *Worker) Run(ctx context.Context) error {
 // Minutely gathers owner mail, runs imports and renders stale comments.
 func (w *Worker) Minutely(ctx context.Context) {
 	w.queueOwners(ctx, model.NotifyInstant, "owner")
-	now := w.Now().UTC()
+	now := w.now().UTC()
 	if now.Hour() == policy.DigestHourUTC && now.Sub(w.lastDigest) > 2*time.Hour {
 		w.lastDigest = now
 		w.queueOwners(ctx, model.NotifyDaily, "digest")
@@ -122,7 +126,7 @@ func (w *Worker) Reconcile(ctx context.Context) {
 		return
 	}
 	if cursor == "" {
-		cursor = w.Now().Add(-policy.IDPEventsKept).UTC().Format(time.RFC3339Nano)
+		cursor = w.now().Add(-policy.IDPEventsKept).UTC().Format(time.RFC3339Nano)
 	}
 	for range 20 {
 		events, next, err := w.IDP.Search(ctx, cursor, 500)
@@ -217,8 +221,8 @@ func (w *Worker) recheckOrigins(ctx context.Context) {
 // SendMail sends due mail, one message per coalesce key.
 func (w *Worker) SendMail(ctx context.Context) {
 	if w.Mailer == nil {
-		if w.Now().Sub(w.warnedNoMail) > time.Hour {
-			w.warnedNoMail = w.Now()
+		if w.now().Sub(w.warnedNoMail) > time.Hour {
+			w.warnedNoMail = w.now()
 			w.Log.Warn("COMMENTS_SMTP_URL is not set; mail stays queued")
 		}
 		return

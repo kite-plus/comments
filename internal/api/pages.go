@@ -52,11 +52,14 @@ func (s *Server) writePage(c *gin.Context, o pageOpts) {
 	csp := "default-src 'none'; script-src 'self'; style-src " + pageCSSHash + "; img-src 'self' data:; connect-src 'self'; " +
 		"form-action " + form + "; base-uri 'none'; frame-ancestors 'none'"
 	c.Header("Content-Security-Policy", csp)
+	// Forms here post to the service itself, which needs a real Origin
+	// header; see threadDocument.
+	c.Header("Referrer-Policy", "strict-origin")
 	c.Header("Cache-Control", "no-store")
 	c.Header("Vary", "Accept-Language")
 	var b strings.Builder
 	b.WriteString(`<!doctype html><html lang="` + lang + `"><head><meta charset="utf-8">`)
-	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">`)
+	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="strict-origin">`)
 	b.WriteString(`<title>` + esc(o.title) + `</title><style>` + pageCSS + `</style>`)
 	if o.script != "" {
 		b.WriteString(`<script type="module" src="/static/widget/` + esc(o.script) + `"></script>`)

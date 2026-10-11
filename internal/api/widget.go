@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -41,7 +42,7 @@ func (s *Server) viewerOf(c *gin.Context, site model.Site) (model.Viewer, bool) 
 	}
 	v, err := s.Store.SiteViewer(c.Request.Context(), crypt.Hash(token), site.ID)
 	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
+		if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, context.Canceled) {
 			s.Log.Error("site session", "error", err)
 		}
 		return model.Viewer{}, false

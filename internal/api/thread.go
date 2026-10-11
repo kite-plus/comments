@@ -172,6 +172,10 @@ func (s *Server) threadDocument(c *gin.Context) {
 		c.Header("Content-Security-Policy", s.threadCSP(model.Site{}, mode))
 	}
 	data["mode"] = mode
+	// "strict-origin", not "no-referrer": with no-referrer, browsers send
+	// "Origin: null" on the redirect login's form post, which the login
+	// entry must refuse. Requests still carry no page address.
+	c.Header("Referrer-Policy", "strict-origin")
 	c.Header("Cache-Control", "public, max-age=30")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", s.renderShell(lang, theme, data))
 }
@@ -201,7 +205,7 @@ func (s *Server) renderShell(lang, theme string, data map[string]any) []byte {
 	}
 	var b strings.Builder
 	b.WriteString(`<!doctype html><html lang="` + lang + `" data-theme="` + theme + `"><head><meta charset="utf-8">`)
-	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">`)
+	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="strict-origin">`)
 	b.WriteString(`<title>` + html.EscapeString(title) + `</title>`)
 	if s.assets.appCSS != "" {
 		b.WriteString(`<style>` + s.assets.appCSS + `</style>`)
