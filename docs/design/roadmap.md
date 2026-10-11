@@ -27,7 +27,7 @@
 
 **环境**：
 
-- 身份服务用 identity I1 的预发布环境 `id.staging.kite.plus`；评论原型放在同一个可注册域名下的 `comments.staging.kite.plus`。
+- 身份服务用 identity I1 的预发布环境 `id-staging.kite.plus`；评论原型放在同一个可注册域名下的 `comments-staging.kite.plus`。
 - 两个测试博客放在两个不同的可注册域名上：`kite-plus.github.io` 和一个 `*.pages.dev`。两者都在公共后缀列表里，每个子域名自成一个「站点」，能真实模拟跨站嵌入。
 - 最小 Go 服务，只实现 [login.md §4](login.md#4-组件登录协议) 的流程、[login.md §5](login.md#5-站点会话) 的两种会话载体和 `frame-ancestors`，不写评论功能。
 
