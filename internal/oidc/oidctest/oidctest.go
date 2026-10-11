@@ -47,6 +47,16 @@ type Provider struct {
 	sid      string // the provider session of the current user
 	codes    map[string]grant
 	Requests []url.Values // authorization requests seen, for assertions
+	coop     bool
+}
+
+// SetCOOP makes the sign-in page send Cross-Origin-Opener-Policy:
+// same-origin, which cuts a popup off from its opener, as some third-party
+// login pages do (login.md section 4.2).
+func (p *Provider) SetCOOP(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.coop = on
 }
 
 type grant struct {
@@ -161,6 +171,9 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	// No session: a minimal sign-in page listing the accounts.
 	p.mu.Lock()
+	if p.coop {
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	}
 	var b strings.Builder
 	b.WriteString(`<!doctype html><meta charset="utf-8"><title>Fake identity service</title><h1>Sign in</h1><form method="post">`)
 	for k, v := range q {

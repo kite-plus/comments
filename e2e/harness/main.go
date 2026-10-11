@@ -112,11 +112,25 @@ func run() error {
 	rec := &recorder{}
 	box := &mailbox{}
 	w := &worker.Worker{Store: st, Keys: keys, Mailer: box, PublicURL: public, Issuer: issuer, Log: log}
+	loop, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
-		for range time.Tick(500 * time.Millisecond) {
-			w.SendMail(ctx)
-			w.Minutely(ctx)
+		defer close(done)
+		t := time.NewTicker(500 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-loop.Done():
+				return
+			case <-t.C:
+				w.SendMail(loop)
+				w.Minutely(loop)
+			}
 		}
+	}()
+	defer func() {
+		stop()
+		<-done
 	}()
 
 	control := http.NewServeMux()
@@ -139,6 +153,7 @@ func run() error {
 		}
 	})
 	control.HandleFunc("POST /__e2e/idp/signout", func(rw http.ResponseWriter, _ *http.Request) { p.SignOut() })
+	control.HandleFunc("POST /__e2e/idp/coop", func(rw http.ResponseWriter, r *http.Request) { p.SetCOOP(r.URL.Query().Get("on") == "1") })
 	// The identity service ends its session: back-channel logout with the
 	// session's sid, then the session is gone.
 	control.HandleFunc("POST /__e2e/idp/logout", func(rw http.ResponseWriter, r *http.Request) {

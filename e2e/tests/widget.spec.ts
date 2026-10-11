@@ -135,6 +135,23 @@ test("T8: the host page cannot use the reader's session or start a login", async
   await p.close();
 });
 
+test("T3: a login page that cuts the popup off still completes by polling", async ({ context, page }) => {
+  await control("/__e2e/idp/coop?on=1", "POST");
+  try {
+    await open(page, H.blogA + "/posts/hello/");
+    const popupEvent = context.waitForEvent("page");
+    await widget(page).getByRole("button", { name: /Kite Plus/ }).click();
+    const popup = await popupEvent;
+    await popup.getByRole("button", { name: "Ann" }).click();
+    // The opener is gone: no done message, but the widget's polling
+    // redeems the login anyway.
+    await expect(widget(page).locator(".kc-who .kc-name")).toHaveText("Ann", { timeout: 15000 });
+    await popup.close().catch(() => {});
+  } finally {
+    await control("/__e2e/idp/coop?on=0", "POST");
+  }
+});
+
 test("T7: the widget does not render on an origin that is not the site's", async ({ page }) => {
   const blocked = page.waitForEvent("console", { predicate: (m) => /frame-ancestors|Refused to frame/i.test(m.text()), timeout: 15000 });
   await page.goto(H.evil + "/embed");
@@ -183,7 +200,7 @@ test("T10: a host page with COOP same-origin falls back to the full-page redirec
   expect(page.url()).not.toContain("#kc-login");
 });
 
-test("T9: sign out of a site, sign out of everything, and back-channel logout", async ({ context, page }) => {
+test("T9: sign out of a site, and back-channel logout", async ({ context, page }) => {
   await open(page, H.blogA + "/posts/hello/");
   await popupSignIn(context, page, "Ann");
   await open(page, H.blogB + "/posts/welcome/");
