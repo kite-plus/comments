@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"slices"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kite-plus/comments/internal/importer"
+	"github.com/kite-plus/comments/internal/markup"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/store"
 )
@@ -162,7 +165,7 @@ func (s *Server) runImport(c *gin.Context) {
 func (s *Server) exportSite(c *gin.Context) {
 	site := currentSite(c)
 	format := c.DefaultQuery("format", "json")
-	if format != "json" && format != "artrans" {
+	if format != "json" && format != "artrans" && format != "wxr" {
 		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
 		return
 	}
@@ -180,6 +183,12 @@ func (s *Server) exportSite(c *gin.Context) {
 		}
 	}
 	name := "kite-comments-" + site.PublicID[:8] + "-" + s.Now().UTC().Format("20060102")
+	if format == "wxr" {
+		c.Header("Content-Disposition", `attachment; filename="`+name+`.wxr.xml"`)
+		c.Header("Cache-Control", "private, no-store")
+		c.Data(http.StatusOK, "application/xml; charset=utf-8", exportWXR(site, threads, comments, emails))
+		return
+	}
 	var body any
 	if format == "json" {
 		body = exportJSON(site, threads, comments, emails, s.Now())
@@ -268,4 +277,65 @@ func exportArtrans(site model.Site, threads []store.ExportThread, comments []sto
 		})
 	}
 	return out
+}
+
+// exportWXR writes WordPress's export format, which WordPress and Disqus
+// import (sites.md section 8): one item per thread with its comments as
+// HTML. Spam and deleted comments go as spam and trash; readers' email
+// addresses are never included.
+func exportWXR(site model.Site, threads []store.ExportThread, comments []store.ExportComment, emails map[int64]string) []byte {
+	byThread := map[int64][]store.ExportComment{}
+	for _, cm := range comments {
+		byThread[cm.ThreadID] = append(byThread[cm.ThreadID], cm)
+	}
+	var b strings.Builder
+	x := func(s string) string {
+		var out bytes.Buffer
+		_ = xml.EscapeText(&out, []byte(s))
+		return out.String()
+	}
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:wp="http://wordpress.org/export/1.2/">` + "\n")
+	b.WriteString("<channel>\n<title>" + x(site.Name) + "</title>\n<link>" + x(site.PrimaryOrigin()) + "</link>\n<wp:wxr_version>1.2</wp:wxr_version>\n")
+	for _, t := range threads {
+		status := "open"
+		if t.LockedAt != nil {
+			status = "closed"
+		}
+		date := t.CreatedAt
+		if t.PagePublishedAt != nil {
+			date = *t.PagePublishedAt
+		}
+		b.WriteString("<item>\n<title>" + x(t.Title) + "</title>\n<link>" + x(t.URL) + "</link>\n")
+		b.WriteString("<wp:post_id>" + strconv.FormatInt(t.ID, 10) + "</wp:post_id>\n<wp:post_name>" + x(t.Key) + "</wp:post_name>\n")
+		b.WriteString("<wp:post_date_gmt>" + date.UTC().Format("2006-01-02 15:04:05") + "</wp:post_date_gmt>\n")
+		b.WriteString("<wp:post_type>post</wp:post_type>\n<wp:status>publish</wp:status>\n<wp:comment_status>" + status + "</wp:comment_status>\n")
+		for _, cm := range byThread[t.ID] {
+			approved := "1"
+			switch cm.Status {
+			case model.StatusPending, model.StatusHidden:
+				approved = "0"
+			case model.StatusSpam:
+				approved = "spam"
+			case model.StatusDeleted:
+				approved = "trash"
+			}
+			parent := "0"
+			if cm.ParentID != nil {
+				parent = strconv.FormatInt(*cm.ParentID, 10)
+			}
+			when := cm.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+			b.WriteString("<wp:comment>\n<wp:comment_id>" + strconv.FormatInt(cm.ID, 10) + "</wp:comment_id>\n")
+			b.WriteString("<wp:comment_author>" + x(cm.AuthorName) + "</wp:comment_author>\n")
+			b.WriteString("<wp:comment_author_email>" + x(emails[cm.ID]) + "</wp:comment_author_email>\n")
+			b.WriteString("<wp:comment_author_url>" + x(cm.AuthorURL) + "</wp:comment_author_url>\n<wp:comment_author_IP></wp:comment_author_IP>\n")
+			b.WriteString("<wp:comment_date>" + when + "</wp:comment_date>\n<wp:comment_date_gmt>" + when + "</wp:comment_date_gmt>\n")
+			b.WriteString("<wp:comment_content>" + x(markup.Render(cm.BodyMD).HTML) + "</wp:comment_content>\n")
+			b.WriteString("<wp:comment_approved>" + approved + "</wp:comment_approved>\n<wp:comment_type>comment</wp:comment_type>\n")
+			b.WriteString("<wp:comment_parent>" + parent + "</wp:comment_parent>\n<wp:comment_user_id>0</wp:comment_user_id>\n</wp:comment>\n")
+		}
+		b.WriteString("</item>\n")
+	}
+	b.WriteString("</channel>\n</rss>\n")
+	return []byte(b.String())
 }

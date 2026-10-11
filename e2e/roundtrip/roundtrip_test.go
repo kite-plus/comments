@@ -21,6 +21,7 @@ import (
 
 	"github.com/kite-plus/comments/internal/api"
 	"github.com/kite-plus/comments/internal/crypt"
+	"github.com/kite-plus/comments/internal/importer"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/oidc"
 	"github.com/kite-plus/comments/internal/oidc/oidctest"
@@ -296,4 +297,37 @@ func (in *instance) upload(raw []byte) *httptest.ResponseRecorder {
 	_, _ = fw.Write(raw)
 	_ = mw.Close()
 	return in.do("POST", "/api/v1/sites/"+in.site.PublicID+"/imports", mw.FormDataContentType(), &buf)
+}
+
+// The WXR export reads back with the WXR importer: every comment, with its
+// place in the thread, status and guest address.
+func TestWXRExportReadsBack(t *testing.T) {
+	src := newInstance(t)
+	seed(t, src)
+	w := src.do("GET", "/api/v1/sites/"+src.site.PublicID+"/export?format=wxr", "", nil)
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/xml") {
+		t.Fatalf("wxr export = %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	r, err := importer.Parse(importer.FormatWXR, w.Body.Bytes())
+	if err != nil || len(r.Failures) != 0 {
+		t.Fatalf("parse = %v %+v", err, r.Failures)
+	}
+	if len(r.Comments) != 8 {
+		t.Fatalf("comments = %d", len(r.Comments))
+	}
+	statuses := map[string]int{}
+	emails, replies := 0, 0
+	for _, c := range r.Comments {
+		statuses[c.Status]++
+		if c.Email == "gail@example.com" {
+			emails++
+		}
+		if c.ParentSourceID != "" {
+			replies++
+		}
+	}
+	// WXR has no "hidden": hidden comments go back as unapproved.
+	if statuses["published"] != 5 || statuses["pending"] != 2 || statuses["spam"] != 1 || emails != 6 || replies != 2 {
+		t.Errorf("statuses %v, emails %d, replies %d", statuses, emails, replies)
+	}
 }
