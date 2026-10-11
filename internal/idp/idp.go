@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -124,27 +125,24 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// Search returns user events from cursor on, oldest first, and the cursor
-// to continue from. The cursor is the creation time of the last event seen;
-// events at that instant come again and deduplicate.
+// SearchOverlap is how far before the cursor a search starts, against
+// events committed slightly out of order; repeats deduplicate by ID.
+const SearchOverlap = 5 * time.Minute
+
+// Search returns user events after cursor, oldest first, and the cursor to
+// continue from: the creation time of the last event seen.
 func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event, string, error) {
-	req := map[string]any{"asc": true, "limit": limit, "event_types": Types, "aggregate_types": []string{"user"}}
-	if cursor != "" {
-		req["from"] = cursor
+	req := map[string]any{"asc": true, "limit": limit, "eventTypes": Types, "aggregateTypes": []string{"user"}}
+	if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
+		req["from"] = t.Add(-SearchOverlap).UTC().Format(time.RFC3339Nano)
 	}
 	body, _ := json.Marshal(req)
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/admin/v1/events/_search", bytes.NewReader(body))
 	if err != nil {
 		return nil, cursor, err
 	}
-	r.Header.Set("Authorization", "Bearer "+c.Token)
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Accept", "application/json")
-	hc := c.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := hc.Do(r)
+	resp, err := c.do(r)
 	if err != nil {
 		return nil, cursor, err
 	}
@@ -186,11 +184,87 @@ func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event,
 	return events, next, nil
 }
 
-// Apply acts on one event once: a removed account's data goes as its
-// on_account_delete setting says; a deactivated or locked account is
-// suspended; a reactivated or unlocked one is restored. Events for readers
-// who never used this service are recorded and otherwise ignored.
-func Apply(ctx context.Context, st *store.Store, issuer string, ev Event) (applied bool, err error) {
+func (c *Client) do(r *http.Request) (*http.Response, error) {
+	r.Header.Set("Authorization", "Bearer "+c.Token)
+	r.Header.Set("Accept", "application/json")
+	hc := c.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	return hc.Do(r)
+}
+
+// User states as the identity service reports them.
+const (
+	StateActive   = "active"
+	StateInactive = "inactive"
+	StateLocked   = "locked"
+	StateDeleted  = "deleted"
+)
+
+// UserState reads a user's current state: deleted, inactive, locked or
+// active.
+func (c *Client) UserState(ctx context.Context, sub string) (string, error) {
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.BaseURL, "/")+"/v2/users/"+url.PathEscape(sub), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(r)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return StateDeleted, nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("user lookup: HTTP %d: %.200s", resp.StatusCode, raw)
+	}
+	var out struct {
+		User struct {
+			State string `json:"state"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	switch out.User.State {
+	case "USER_STATE_INACTIVE":
+		return StateInactive, nil
+	case "USER_STATE_LOCKED":
+		return StateLocked, nil
+	case "USER_STATE_DELETED":
+		return StateDeleted, nil
+	}
+	return StateActive, nil
+}
+
+// stateOf is what an event implies when the user cannot be looked up.
+func stateOf(eventType string) string {
+	switch eventType {
+	case UserRemoved:
+		return StateDeleted
+	case UserDeactivated:
+		return StateInactive
+	case UserLocked:
+		return StateLocked
+	}
+	return StateActive
+}
+
+// Apply acts on one event once. With a client, the event is only a hint:
+// the user's current state is read from the identity service and applied,
+// so a forged or stale delivery cannot delete or suspend anyone. Without
+// one, the event type decides. A deleted account's data goes as its
+// on_account_delete setting says; an inactive or locked account is
+// suspended; an active one has a suspension by the identity service
+// lifted. Events for readers who never used this service are recorded and
+// otherwise ignored.
+func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Event) (applied bool, err error) {
 	seen, err := st.IDPEventSeen(ctx, ev.ID)
 	if err != nil || seen {
 		return false, err
@@ -201,12 +275,18 @@ func Apply(ctx context.Context, st *store.Store, issuer string, ev Event) (appli
 	case err != nil:
 		return false, err
 	default:
-		switch ev.Type {
-		case UserRemoved:
+		state := stateOf(ev.Type)
+		if c != nil {
+			if state, err = c.UserState(ctx, ev.Subject); err != nil {
+				return false, err
+			}
+		}
+		switch state {
+		case StateDeleted:
 			err = st.DeleteUserData(ctx, u.ID, u.OnAccountDelete, true)
-		case UserDeactivated, UserLocked:
-			err = st.SuspendUser(ctx, u.ID, "idp:"+strings.TrimPrefix(ev.Type, "user."))
-		case UserReactivated, UserUnlocked:
+		case StateInactive, StateLocked:
+			err = st.SuspendUser(ctx, u.ID, "idp:"+state)
+		default:
 			err = st.UnsuspendUser(ctx, u.ID, "idp:")
 		}
 		if err != nil && !errors.Is(err, store.ErrNotFound) {

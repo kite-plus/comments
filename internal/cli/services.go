@@ -46,6 +46,9 @@ func newServeCmd() *cobra.Command {
 				IDPWebhookSecret: cfg.IDPWebhookSecret, TrustedProxies: cfg.TrustedProxies, DevHTTPOrigins: cfg.DevHTTPOrigins,
 				Widget: web.Widget(), Console: web.Console(), Log: log,
 			}
+			if cfg.IDPAPIToken != "" {
+				srv.IDP = &idp.Client{BaseURL: cfg.IDPAPIURL, Token: cfg.IDPAPIToken}
+			}
 			h, err := srv.Handler()
 			if err != nil {
 				return err

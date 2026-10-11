@@ -365,7 +365,7 @@ func (s *Server) idpHook(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
 		return
 	}
-	applied, err := idp.Apply(c.Request.Context(), s.Store, s.Issuer, ev)
+	applied, err := idp.Apply(c.Request.Context(), s.Store, s.IDP, s.Issuer, ev)
 	if err != nil {
 		s.storeError(c, err)
 		return

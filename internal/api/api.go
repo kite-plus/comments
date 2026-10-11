@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kite-plus/comments/internal/crypt"
+	"github.com/kite-plus/comments/internal/idp"
 	"github.com/kite-plus/comments/internal/oidc"
 	"github.com/kite-plus/comments/internal/policy"
 	"github.com/kite-plus/comments/internal/store"
@@ -34,7 +35,10 @@ type Server struct {
 	// Issuer is the identity service's issuer, the key half of (iss, sub).
 	Issuer           string
 	IDPWebhookSecret string
-	TrustedProxies   []string
+	// IDP reads users' current state before an event is acted on; nil
+	// trusts the event type, for tests.
+	IDP            *idp.Client
+	TrustedProxies []string
 	// DevHTTPOrigins accepts http site origins (config.DevHTTPOrigins).
 	DevHTTPOrigins bool
 	// Widget and Console are the built frontends (package web).
@@ -79,7 +83,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	if org, err := originOf(s.Issuer); err == nil {
 		s.issuerOrg = org
 	}
-	s.assets = loadWidgetAssets(s.Widget, s.Log)
+	s.assets = loadWidgetAssets(s.Widget, s.origin, s.Log)
 
 	s.anonReads = newLimiter(policy.AnonymousReadsPerIP, s.Now)
 	s.loginStarts = newLimiter(policy.LoginStartsPerIP, s.Now)
@@ -153,6 +157,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	w.DELETE("/widget/session", s.signOutSite)
 	w.GET("/widget/threads/comments", s.managerComments)
 	w.POST("/comments", s.limit(s.writes), s.postComment)
+	w.GET("/comments/:id/source", s.commentSource)
 	w.PATCH("/comments/:id", s.limit(s.writes), s.editComment)
 	w.DELETE("/comments/:id", s.limit(s.writes), s.deleteComment)
 	w.POST("/comments/:id/reports", s.limit(s.writes), s.reportComment)

@@ -723,3 +723,13 @@ func validHomepage(raw string) (string, bool) {
 	}
 	return u.String(), true
 }
+
+// commentSource is GET /api/v1/comments/{id}/source: the author's own
+// Markdown, for editing in the widget.
+func (s *Server) commentSource(c *gin.Context) {
+	_, _, cm, ok := s.ownComment(c, c.Query("site"))
+	if !ok {
+		return
+	}
+	private(c, http.StatusOK, gin.H{"body": cm.BodyMD})
+}

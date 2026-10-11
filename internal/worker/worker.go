@@ -132,7 +132,7 @@ func (w *Worker) Reconcile(ctx context.Context) {
 		}
 		applied := 0
 		for _, ev := range events {
-			ok, err := idp.Apply(ctx, w.Store, w.Issuer, ev)
+			ok, err := idp.Apply(ctx, w.Store, w.IDP, w.Issuer, ev)
 			if err != nil {
 				w.Log.Error("reconcile", "event", ev.ID, "error", err)
 				return

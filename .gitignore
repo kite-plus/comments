@@ -5,6 +5,7 @@
 /.go.sum.check
 .env
 /deploy/.env
+/deploy/.env.dev
 node_modules/
 .DS_Store
 

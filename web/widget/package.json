@@ -1,0 +1,21 @@
+{
+  "name": "@kite-plus/comments-widget",
+  "private": true,
+  "version": "1.0.0",
+  "description": "embed.js and the iframe app of Kite Plus Comments",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && vite build -c vite.embed.config.ts && node scripts/postbuild.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "preact": "^10.27.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "pnpm@10.11.1"
+}

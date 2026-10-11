@@ -270,6 +270,13 @@ func (s *Server) commentJSON(site model.Site, cm model.Comment, manager bool) gi
 	if cm.RootID == nil {
 		out["reply_count"] = cm.ReplyCount
 		out["replies"] = replies
+		// Where GET /api/v1/comments/{id}/replies continues after the
+		// replies shown inline.
+		out["replies_cursor"] = nil
+		if n := len(cm.Replies); n > 0 {
+			last := cm.Replies[n-1]
+			out["replies_cursor"] = encodeCursor(&model.Cursor{At: last.CreatedAt, ID: last.ID})
+		}
 	}
 	visible := cm.Status == model.StatusPublished || (manager && cm.Status != model.StatusDeleted)
 	if !visible {

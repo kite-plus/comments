@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +22,7 @@ import (
 // the iframe app's script and its CSS to inline, and the popup's script.
 type widgetAssets struct {
 	fs           fs.FS
+	origin       string
 	ok           bool
 	embedJS      []byte
 	embedSRI     string
@@ -35,7 +38,7 @@ type manifestEntry struct {
 	CSS  []string `json:"css"`
 }
 
-func loadWidgetAssets(fsys fs.FS, log *slog.Logger) *widgetAssets {
+func loadWidgetAssets(fsys fs.FS, origin string, log *slog.Logger) *widgetAssets {
 	a := &widgetAssets{fs: fsys}
 	if fsys == nil {
 		return a
@@ -66,6 +69,8 @@ func loadWidgetAssets(fsys fs.FS, log *slog.Logger) *widgetAssets {
 		log.Error("embed.js", "error", err)
 		return a
 	}
+	a.origin = origin
+	a.embedJS = a.withOrigin(a.embedJS)
 	sum := sha512.Sum384(a.embedJS)
 	a.embedSRI = "sha384-" + base64.StdEncoding.EncodeToString(sum[:])
 	var build struct {
@@ -76,6 +81,15 @@ func loadWidgetAssets(fsys fs.FS, log *slog.Logger) *widgetAssets {
 	}
 	a.ok = a.appJS != "" && a.popupJS != ""
 	return a
+}
+
+// originPlaceholder in embed.js becomes the service's origin when served,
+// so a downloaded, self-hosted copy still points at the service and its
+// SRI hash covers what browsers receive.
+const originPlaceholder = "__KITE_COMMENTS_ORIGIN__"
+
+func (a *widgetAssets) withOrigin(b []byte) []byte {
+	return bytes.ReplaceAll(b, []byte(originPlaceholder), []byte(a.origin))
 }
 
 func (s *Server) embedJS(c *gin.Context) {
@@ -111,7 +125,7 @@ func (s *Server) embedPath(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Data(http.StatusOK, "text/javascript; charset=utf-8", b)
+	c.Data(http.StatusOK, "text/javascript; charset=utf-8", s.assets.withOrigin(b))
 }
 
 // embedInfo tells the console what to show for the pinned, SRI-checked
@@ -121,7 +135,7 @@ func (s *Server) embedInfo(c *gin.Context) {
 		s.fail(c, http.StatusServiceUnavailable, codeUnavailable)
 		return
 	}
-	cached(c, 300e9, "application/json; charset=utf-8", encodeJSON(gin.H{
+	cached(c, 5*time.Minute, "application/json; charset=utf-8", encodeJSON(gin.H{
 		"version":    s.assets.embedVersion,
 		"script_url": s.origin + "/embed.js",
 		"pinned_url": s.origin + "/embed/v" + s.assets.embedVersion + ".js",
