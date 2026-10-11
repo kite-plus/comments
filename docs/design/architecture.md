@@ -184,10 +184,11 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 | Cookie | 都是 `__Host-` 前缀：按站点命名的分区站点会话、第一方的控制台会话、登录时用的 binder。匿名读者一个也没有 | [login.md §3](login.md#3-三种会话) |
 | 读者 ID | 读者在每个站点的作者 ID 各不相同，任何人都不能凭 ID 把一个读者在各站的评论串起来，博主的导出之间也对不上 | [data-model.md §3.1](data-model.md#31-账号与身份) |
 | 第三方请求 | 组件不发任何第三方请求：没有网络字体、统计脚本和外链头像 | [widget.md §10](widget.md#10-加载体积与降级) |
-| 邮箱 | 只存密文和 HMAC，永不公开，也不公开邮箱的哈希值（Waline、Twikoo、Artalk 都公开未加盐的邮箱哈希，能被字典反推） | [data-model.md §2](data-model.md#2-约定) |
+| 邮箱 | 只存密文和 HMAC，永不公开，也不公开邮箱的哈希值（Waline、Twikoo、Artalk 都公开未加盐的邮箱哈希，能被字典反推）。导入的解析结果里也是密文；日志和发信错误里不留收件地址 | [data-model.md §2](data-model.md#2-约定)、[moderation.md §6.3](moderation.md#63-发信) |
+| 导入文件 | 原始文件解析完就丢弃，不落库；解析结果 24 小时后清除 | [sites.md §7](sites.md#7-导入) |
 | IP | 只存按月轮换的 HMAC，按保留期清空；日志不记 IP | [data-model.md §2](data-model.md#2-约定) |
 | 博主能看到的 | 显示名、个人主页、访客留下的邮箱；看不到登录读者的邮箱 | [sites.md §8](sites.md#8-导出) |
-| 读者的权利 | 随时导出、删除；删除几秒内生效，备份按 §9 的保存期轮换掉 | [login.md §7](login.md#7-账号删除与停用) |
+| 读者的权利 | 随时导出、删除；删除几秒内生效，备份按 §9 的保存期轮换掉。唯一的例外是封禁：被封禁的读者删除数据后，封禁记录里的身份 `(issuer, subject)` 保留到封禁解除或过期，只用来执行封禁，隐私政策里写明 | [login.md §7](login.md#7-账号删除与停用)、[data-model.md §3.5](data-model.md#35-审核举报与封禁) |
 
 ---
 
@@ -274,7 +275,7 @@ comments/
 | `COMMENTS_SMTP_URL`、`COMMENTS_MAIL_FROM` | 发信：`smtp://[user:pass@]host:port`（服务器支持时 STARTTLS）或 `smtps://`；不设时邮件留在队列里 |
 | `COMMENTS_LOG_LEVEL` | 日志级别 |
 | `COMMENTS_DEV_HTTP_ORIGINS` | 只给开发机：允许站点用 http 的 origin，本地测试博客靠它；`COMMENTS_PUBLIC_URL` 是 https 时拒绝启动（[sites.md §2](sites.md#2-注册与验证)） |
-| `COMMENTS_ALLOW_PRIVATE_NETWORKS` | 只给开发机：站点验证和头像抓取可以访问内网地址和任意端口 |
+| `COMMENTS_ALLOW_PRIVATE_NETWORKS` | 只给开发机：站点验证和头像抓取可以访问内网地址和任意端口；`COMMENTS_PUBLIC_URL` 是 https 时拒绝启动 |
 
 `COMMENTS_DATA_KEYS` 的格式是 `版本:base64密钥,版本:base64密钥`，每把 32 字节，版本号 1–255，最大的那个加密，列出的都能解密。`COMMENTS_HMAC_KEY`、`COMMENTS_IP_KEY` 各是一把 32 字节的 base64 密钥。
 

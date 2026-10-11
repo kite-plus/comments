@@ -86,7 +86,7 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 ```
 
 1. **预先生成**：W 加载时就生成 verifier 并算好 challenge。`crypto.subtle.digest` 是异步的；等到点击后再算，`window.open` 就不在用户手势的同步调用栈里了，Safari 会拦截弹窗。每用掉一对（发出 `begin`，或发起整页跳转）就立刻生成下一对，重试不会撞上同一个 challenge。
-2. **打开弹窗**：点击时同步调用 `window.open("https://comments.kite.plus/auth/popup", "kite-comments-login", "popup,width=480,height=720")`。返回 `null` 有两种可能：弹窗被拦截；或者宿主页设了 `COOP: same-origin`，弹窗其实打开了，只是没有 opener。两种情况 W 都走 §4.4；P 发现自己没有 opener 时，提示读者关掉这个窗口、回到文章里继续。
+2. **打开弹窗**：点击时同步调用 `window.open("https://comments.kite.plus/auth/popup", "kc-login-<随机>", "popup,width=480,height=720")`。窗口名每次随机生成（2026-10 改）：固定的名字谁都知道，别的页面可以用同名的 `window.open` 或 `target` 把读者的登录窗口换成自己的页面，或者抢先开一个同名窗口等着被复用。返回 `null` 有两种可能：弹窗被拦截；或者宿主页设了 `COOP: same-origin`，弹窗其实打开了，只是没有 opener。两种情况 W 都走 §4.4；P 发现自己没有 opener 时，提示读者关掉这个窗口、回到文章里继续。
 3. **握手**：P 加载后向 `window.opener` 发 `ready`，目标 origin 写死为 `https://comments.kite.plus`。W 只接受 `event.source` 是自己打开的那个窗口、且 `event.origin` 为 `https://comments.kite.plus` 的 `ready`，然后回复 `begin {site, challenge}`。P 只接受来自 `window.opener`、origin 为 `https://comments.kite.plus` 的 `begin`。W 转入整页跳转后，再收到的 `ready` 一律忽略。P 页面不设置 COOP，否则握手之前 opener 就断了。
 4. **建交易**：P 用 `fetch` 调用 `POST /auth/transactions {site, challenge}`。C 只接受自己页面发来的 JSON：`Origin` 必须是 `https://comments.kite.plus`；有 `Sec-Fetch-Site` 时必须是 `same-origin`；`Sec-Fetch-Mode` 不能是 `navigate`；`Content-Type` 必须是 `application/json`；响应只返回 JSON，从不跳转。所以跨站页面没法在读者的浏览器里用自己的 challenge 建交易。然后 C 检查站点是 `active`；浏览器里没有 binder Cookie 就新建一个，有就沿用并续期；生成随机的 `state`、`nonce` 和 PKCE，写入 `login_transactions`（模式 `popup`，有效期见 §4.5），返回授权地址，P 跳过去。
 5. **身份服务**：读者已登录时 I 直接回跳，读者什么也看不到；否则显示登录或注册页。
@@ -221,14 +221,14 @@ W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 **删除的步骤**：
 
 1. **先看有没有站点要托付**。读者是某个站点唯一的所有者时，不能在读者中心删除自己的数据，要先删除这些站点（C4 起也可以转给别人）。在身份服务上直接删账号时拦不住，这些站点没有了所有者：立即暂停，按站点删除的流程，在恢复窗口过后彻底删除。
-2. **在一个事务里完成**：先改写评论，两种处理都把 `author_kind` 改为 `former_user`，选「删除」的同时把状态改为 `deleted`；然后删除用户行，资料、会话、通知、站点作者 ID、站点成员随之删除。数据库约束保证这个顺序：`author_kind` 还是 `user` 的评论不允许 `author_user_id` 为空，所以没先改写评论就删不掉用户（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。
+2. **在一个事务里完成**：先改写评论，两种处理都把 `author_kind` 改为 `former_user`，选「删除」的同时把状态改为 `deleted`；删掉队列里还没发给这个账号的邮件；然后删除用户行，资料、会话、通知、站点作者 ID、站点成员随之删除。**封禁不删**：封禁记的是身份 `(issuer, subject)`，不指向用户行，读者用同一个身份重新登录时照样生效，保存到封禁解除或过期（[data-model.md §3.5](data-model.md#35-审核举报与封禁)）。数据库约束保证这个顺序：`author_kind` 还是 `user` 的评论不允许 `author_user_id` 为空，所以没先改写评论就删不掉用户（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。
 
 **事件**：
 
-- 身份服务推送到 `POST /hooks/idp`，C 校验签名，按事件 ID 去重（`idp_events`）。以 ZITADEL 为例，它用 Actions v2 推送 `user.removed`、`user.deactivated`、`user.reactivated`、`user.locked`、`user.unlocked`，签名在 `ZITADEL-Signature` 头里：`t=<秒>,v1=<十六进制>`，是以签名密钥对 `<t>.<原始请求体>` 做的 HMAC-SHA256，时间偏差超过 5 分钟拒绝，多个 `v1` 有一个对上即可。事件 ID 是 `<aggregateID>:<sequence>`，`aggregateID` 就是 `sub`。
-- **推送只是提示**：各服务的同步令牌（`IAM_OWNER_VIEWER`）能读到所有推送目标的签名密钥，一个服务被攻破就能伪造发给另一个服务的推送（identity 仓库 README）。所以配置了 API 令牌时，C 收到事件（推送或对账）后先用 `GET /v2/users/{sub}` 读这个用户的当前状态，按状态处理：停用 → 暂停；正常 → 解除身份服务造成的暂停；锁定 → 不动。**删除要两样都对上**：用户读不到（`404`，而且响应体是身份服务自己的「找不到用户」错误，gRPC 代码 5，不是代理的错误页），并且权威的事件查询（下面的对账接口，按这个用户过滤）里有它的 `user.removed`；只对上一样就先不删。身份服务读不到或删除还没得到确认时，推送返回 `503`，事件不记入 `idp_events`，留给对账。没有令牌时（测试）按事件类型处理。
-- 用户删除 → 按上面处理；用户停用 → 暂停（撤销全部会话，不能发表）；重新启用 → 解除暂停。**锁定和解锁什么也不做**（2026-10 改）：谁都能靠故意输错密码把一位读者锁住，身份服务也在关掉永久锁定，暂停只跟着停用走。
-- **推送不可靠**：以 ZITADEL v4.19 为例，每个事件只投递一次，10 秒超时，失败不重试，评论服务停机维护时必然漏收。所以 worker 每小时另跑一次对账：用事件查询 API（`POST /admin/v1/events/_search`，按 `eventTypes`（删除、停用、重新启用）、`aggregateTypes` 过滤，`from` 不含边界）取游标之后的用户事件，补上漏收的。游标是最后一个事件的 `creationDate`，存在 `idp_sync`；查询从游标往前 5 分钟开始，防止乱序提交的事件漏掉，重复的按事件 ID 跳过。某个用户的状态读不到时跳过它、继续处理其余的，存下的游标不越过最早一个跳过的事件，下一轮重试。第一次对账从 30 天前开始。
+- 身份服务推送到 `POST /hooks/idp`，C 校验签名。以 ZITADEL 为例，它用 Actions v2 推送 `user.removed`、`user.deactivated`、`user.reactivated`、`user.locked`、`user.unlocked`，签名在 `ZITADEL-Signature` 头里：`t=<秒>,v1=<十六进制>`，是以签名密钥对 `<t>.<原始请求体>` 做的 HMAC-SHA256，时间偏差超过 5 分钟拒绝，多个 `v1` 有一个对上即可。事件 ID 是 `<aggregateID>:<sequence>`，`aggregateID` 就是 `sub`。
+- **推送只是提示**：各服务的同步令牌（`IAM_OWNER_VIEWER`）能读到所有推送目标的签名密钥，一个服务被攻破就能伪造发给另一个服务的推送（identity 仓库 README）。所以配置了 API 令牌时，C 收到事件（推送或对账）后先用 `GET /v2/users/{sub}` 读这个用户的当前状态，按状态处理：停用 → 暂停；正常 → 解除身份服务造成的暂停；锁定 → 不动。**删除要两样都对上**：用户读不到（`404`，而且响应体是身份服务自己的「找不到用户」错误，gRPC 代码 5，不是代理的错误页），并且权威的事件查询（下面的对账接口，按这个用户过滤）里有它的 `user.removed`；只对上一样就先不删。身份服务读不到或删除还没得到确认时，推送返回 `503`，留给对账。**推送的事件 ID 从不记入 `idp_events`**（2026-10 改）：ID 是推送方写的，伪造的推送可以先用真事件的 ID 占住它，让对账以为处理过而跳过；推送按当前状态处理，重复处理也没有害处。只有从事件查询里读到、处理完的事件才记 ID 去重。没有令牌时（测试）按事件类型处理。
+- 用户删除 → 按上面处理；用户停用 → 暂停（撤销全部会话，不能发表）；重新启用 → 解除暂停。身份服务的暂停和平台维护者的暂停分开记（`users.idp_suspended_at` 和 `suspended_at`，[data-model.md §3.1](data-model.md#31-账号与身份)）：重新启用只解除身份服务的那一个，平台暂停的读者在身份服务上停用再启用也解不了。**锁定和解锁什么也不做**（2026-10 改）：谁都能靠故意输错密码把一位读者锁住，身份服务也在关掉永久锁定，暂停只跟着停用走。
+- **推送不可靠**：以 ZITADEL v4.19 为例，每个事件只投递一次，10 秒超时，失败不重试，评论服务停机维护时必然漏收。所以 worker 每小时另跑一次对账：用事件查询 API（`POST /admin/v1/events/_search`，按 `eventTypes`（删除、停用、重新启用）、`aggregateTypes` 过滤，`from` 不含边界）取游标之后的用户事件，补上漏收的。游标是最后一个事件的 `creationDate`，存在 `idp_sync`；每轮的第一页从游标往前 5 分钟开始，防止乱序提交的事件漏掉，重复的按事件 ID 跳过；之后各页从上一页最后一个事件的时间接着取（2026-10 改：原来每页都往前退 5 分钟，5 分钟内有超过一页的 500 个事件时，对账永远停在同一页）。某个用户的状态读不到时跳过它、继续处理其余的，存下的游标不越过最早一个跳过的事件，下一轮重试。第一次对账从 30 天前开始。
 
 删除在几秒内生效。备份里的数据随备份轮换消失（保存期见 [architecture.md §9](architecture.md#9-部署与运维)），隐私政策里写明这一点。
 

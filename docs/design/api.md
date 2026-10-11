@@ -126,8 +126,8 @@
 |---|---|---|
 | POST | `/api/v1/comments` | 发表，见下 |
 | GET | `/api/v1/comments/{id}/source` | 参数 `site`。作者取自己评论的 Markdown 原文，编辑用：`{body}` |
-| PATCH | `/api/v1/comments/{id}` | 作者在编辑窗口内修改 `{site, body}`，重新走发布规则的第 5–7 条（[moderation.md §2](moderation.md#2-发布规则)）；超过窗口 `403 edit_window_closed` |
-| DELETE | `/api/v1/comments/{id}` | 参数 `site`。作者删除，`204` |
+| PATCH | `/api/v1/comments/{id}` | 作者在编辑窗口内修改 `{site, body}`，重新走发布规则的第 5–7 条（[moderation.md §2](moderation.md#2-发布规则)）；超过窗口 `403 edit_window_closed`；作者被封禁时 `403 forbidden`；站点不是 `active` 时 `403 site_inactive` |
+| DELETE | `/api/v1/comments/{id}` | 参数 `site`。作者删除，`204`。站点暂停、待审或在恢复窗口里也能删 |
 | POST | `/api/v1/comments/{id}/reports` | 登录读者举报 `{site, reason, note?}`，`reason` 是 `spam`、`abuse`、`illegal`、`privacy`、`other`；只能举报已发布的评论；同一读者对同一条评论只记一次 |
 | GET | `/api/v1/widget/threads/comments` | 只对本站管理者开放，参数同 §3 的讨论页评论接口，另可按 `status` 筛选（`published`、`pending`、`hidden`、`spam`）；返回包括待审、隐藏、垃圾在内的评论，响应 `private, no-store`。组件在管理者登录后改用它 |
 | POST | `/api/v1/comments/{id}/moderation` | 管理者处置 `{site, action}`：`approve`、`hide`、`spam`、`restore`、`pin`、`unpin`，返回评论对象。封禁只在控制台里做（§7） |
@@ -147,14 +147,14 @@
   "parent_id": "18342",
   "body": "Markdown",
   "lang": "zh-CN",
-  "guest": {"name": "昵称", "email": "a@b.example", "url": "https://…", "notify": true, "website": ""},
+  "guest": {"name": "昵称", "email": "a@b.example", "url": "https://…", "notify": true, "website": "", "token": "浏览器的访客令牌"},
   "pow": {"challenge": "…", "salt": "…", "signature": "…", "number": 12345}
 }
 ```
 
 - `key` 是 iframe 文档内联的讨论页标识。服务端不盲信它：以 `k:` 开头时按 `page-key` 的规则校验；否则必须等于按 `url` 重新算出的标识（[widget.md §5](widget.md#5-讨论页标识)）。`url` 的 origin 必须是站点的已验证 origin，否则 `400 origin_not_allowed`。
-- 讨论页不存在时，用这次的 `url`、`title`、`published` 创建它，之后不再改写（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。
-- 没有站点会话时必须带 `guest` 和 `pow`；`guest.website` 是对人不可见的蜜罐字段，有内容就 `400`。`lang` 用于访客的确认信和回复通知。
+- 讨论页不存在时，用这次的 `url`、`title`、`published` 创建它，之后不再改写（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。`published` 晚于现在 24 小时以上时按没给处理（[sites.md §4](sites.md#4-站点设置与讨论页管理)）。
+- 没有站点会话时必须带 `guest` 和 `pow`；`guest.website` 是对人不可见的蜜罐字段，有内容就 `400`。`lang` 用于访客的确认信和回复通知。`guest.token` 是组件存在 iframe 里的访客令牌（43 个 base64url 字符）：`notify` 为 `true` 时，这个邮箱在这个令牌上确认过才直接开通知，否则发确认信（[moderation.md §6.1](moderation.md#61-读者)）；不带或格式不对就当作没确认过的浏览器。
 - 返回 `201` 和评论对象，带 `status`（可能是 `pending`）。同一作者 10 分钟内发出相同正文返回 `409 conflict`。发布规则和顺序见 [moderation.md §2](moderation.md#2-发布规则)。
 
 普通读者不需要带身份读取评论：自己待审核的评论只在读者中心显示，不在组件里显示（[widget.md §9](widget.md#9-界面)）。
@@ -172,6 +172,7 @@
 | DELETE | `/api/v1/me` | 删除本服务里的数据，`{comments: "remove" | "anonymize"}`，`204` 并清掉控制台 Cookie。读者是某个站点唯一的所有者时返回 `409 sole_owner`。Kite Plus 账号本身要在身份服务删除（[login.md §7](login.md#7-账号删除与停用)） |
 | GET | `/api/v1/me/avatar` | 读者自己的头像图片（选了身份服务头像时） |
 | GET | `/api/v1/me/comments` | 我在所有站点的评论，参数 `site`（站点 ID）、`cursor`、`limit`；含待审核和被隐藏的，并标明状态；不含已删除的 |
+| DELETE | `/api/v1/me/comments/{id}` | 删除我的一条评论，`204`，和组件里的删除相同（→ `deleted`）。不看站点状态：站点暂停、待审或在恢复窗口里也能删，读者不用回到一个可能已经打不开的博客。不是自己的或已删除的 `404` |
 | GET | `/api/v1/me/notifications` | 回复通知，`{data, next_cursor, unread}` |
 | POST | `/api/v1/me/notifications/read` | 标为已读，`{ids: ["…"]}`（最多 500 个）或 `{all: true}`，`204` |
 | GET | `/api/v1/me/mutes` | 关闭了通知的讨论页 ID：`{data: ["77", …]}` |
@@ -217,32 +218,32 @@
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/v1/sites` | 登录即可 | 我管理的站点：`{data: [站点…]}`，每个另带 `pending_count`、`reported_count` |
-| POST | `/api/v1/sites` | 登录即可 | 新建站点 `{name, origin, aliases?, guest_policy}`：`guest_policy` 必填（`off`、`review`、`publish`，[sites.md §4](sites.md#4-站点设置与讨论页管理)）；origin 只接受 https（开发服务器另见 [sites.md §2](sites.md#2-注册与验证)）；别名最多 5 个；origin 已属于别的站点 `409 conflict` |
+| POST | `/api/v1/sites` | 登录即可 | 新建站点 `{name, origin, aliases?, guest_policy}`：`guest_policy` 必填（`off`、`review`、`publish`，[sites.md §4](sites.md#4-站点设置与讨论页管理)）；origin 只接受 https（开发服务器另见 [sites.md §2](sites.md#2-注册与验证)）；别名最多 5 个；origin 已被别的站点**验证** `409 conflict`（只登记没验证的不算）；每个账号每天 5 个，超出 `429`；账号已有 10 个未删除的站点 `403 forbidden` |
 | GET | `/api/v1/sites/{site}` | | 站点 |
 | PATCH | `/api/v1/sites/{site}` | 所有者 | 设置：`name`、`guest_policy`、`member_policy`、`sort_order`、`close_after_days`（1–3650）或 `clear_close_after_days: true`、`query_keys`（最多 5 个）、`allow_localhost`、`owner_notify`、`blocked_words`（最多 200 个，每个最多 100 字，去重） |
 | DELETE | `/api/v1/sites/{site}` | 所有者 | 删除，进入恢复窗口，`204`（[sites.md §4](sites.md#4-站点设置与讨论页管理)） |
-| POST | `/api/v1/sites/{site}/restore` | 所有者 | 在恢复窗口内找回站点 |
-| POST | `/api/v1/sites/{site}/origins` | 所有者 | 加别名 `{origin}`，返回站点 |
+| POST | `/api/v1/sites/{site}/restore` | 所有者 | 在恢复窗口内找回站点；被平台暂停的站点恢复成 `suspended`，暂停说明保留 |
+| POST | `/api/v1/sites/{site}/origins` | 所有者 | 加别名 `{origin}`，返回站点；已被别的站点验证 `409 conflict` |
 | DELETE | `/api/v1/sites/{site}/origins/{origin}` | 所有者 | 删别名；`{origin}` 要整段百分号编码，如 `https%3A%2F%2Fwww.example.com`；主 origin 不能删 |
 | POST | `/api/v1/sites/{site}/verification` | 所有者 | 生成新的验证令牌，只在这次响应里返回明文：`{token, expires_at, dns: {name, value}, meta, file: {path, content}}` |
-| POST | `/api/v1/sites/{site}/verification/check` | 所有者 | 验证全部未验证的 origin：`{results: [{origin, ok, method, detail}], site}`；一个都没通过时 `422`，响应另带 `error`（`verification_failed`）。每站点每小时 10 次 |
+| POST | `/api/v1/sites/{site}/verification/check` | 所有者 | 验证全部未验证的 origin：`{results: [{origin, ok, method, detail}], site}`；一个都没通过时 `422`，响应另带 `error`（`verification_failed`）。每站点每小时 10 次。别的站点已经验证了的 origin 不通过，`detail` 说明；`detail` 不含解析出的地址（[sites.md §2](sites.md#2-注册与验证)） |
 | GET | `/api/v1/sites/{site}/comments` | | 审核队列：`status`（`pending`、`published`、`spam`、`hidden`、`deleted`、`reported`，省略为除已删除外的全部）、`thread`（讨论页 ID）、`cursor`；新的在前。评论对象另带 `status`、`thread: {id, url, title}`、`url`（固定链接），访客评论带 `guest_email` |
 | POST | `/api/v1/sites/{site}/comments/moderation` | | 批量处置 `{ids, action}`（最多 200 条），返回 `{changed}`，不适用的跳过 |
 | GET | `/api/v1/sites/{site}/threads` | | 讨论页列表，最近有评论的在前：`{id, key, url, title, published_at, locked, comment_count, last_comment_at, created_at}` |
-| PATCH | `/api/v1/sites/{site}/threads/{thread}` | | 锁定、解锁；修改标题、地址和发布时间：`{title?, url?, published_at?, clear_published_at?, locked?}`，地址必须属于站点 |
+| PATCH | `/api/v1/sites/{site}/threads/{thread}` | | 锁定、解锁；修改标题、地址和发布时间：`{title?, url?, published_at?, clear_published_at?, locked?}`，地址必须属于站点；发布时间晚于现在 24 小时以上 `400` |
 | POST | `/api/v1/sites/{site}/threads/{thread}/move` | 所有者 | 迁移到另一个标识 `{to_key}` 或 `{to_url}`，目标已存在则合并；返回目标讨论页。可在审核记录里撤销 |
 | GET | `/api/v1/sites/{site}/bans` | | 有效的封禁：`{id, kind: "user" | "email" | "ip", author_id, name, reason, created_at, expires_at}` |
-| POST | `/api/v1/sites/{site}/bans` | | 封禁 `{kind, comment_id? , author_id?, email?, reason?, days?}`：`user` 按 `comment_id` 的作者或 `author_id`；`email` 按 `comment_id` 的访客邮箱或 `email`；`ip` 按 `comment_id` 存下的 IP HMAC（[moderation.md §4.1](moderation.md#41-站点管理者)）。`days` 省略为不过期 |
+| POST | `/api/v1/sites/{site}/bans` | | 封禁 `{kind, comment_id? , author_id?, email?, reason?, days?}`：`user` 按 `comment_id` 的作者或 `author_id`，记下这位读者的身份，删除账号后照样生效（[data-model.md §3.5](data-model.md#35-审核举报与封禁)）；`email` 按 `comment_id` 的访客邮箱或 `email`；`ip` 按 `comment_id` 存下的 IP HMAC（[moderation.md §4.1](moderation.md#41-站点管理者)）。`days` 省略为不过期 |
 | DELETE | `/api/v1/sites/{site}/bans/{id}` | | 解除 |
 | GET | `/api/v1/sites/{site}/reports` | | 举报：参数 `status`（`open`、`resolved`、`dismissed`）；`{id, reason, note, status, created_at, resolved_at, site, comment}` |
 | PATCH | `/api/v1/sites/{site}/reports/{id}` | | 处理 `{status: "resolved" | "dismissed", action?: "hide" | "spam"}`，`204` |
 | GET | `/api/v1/sites/{site}/events` | | 审核记录：`{id, comment_id, actor, action, detail, created_at}` |
 | POST | `/api/v1/sites/{site}/events/{id}/undo` | 所有者 | 撤销一次讨论页迁移，`204`；已撤销或不是迁移 `400` |
-| POST | `/api/v1/sites/{site}/imports` | 所有者 | 上传（multipart：`format` 是 `json`、`waline`、`twikoo`、`artrans`、`wxr`，`file` 最大 50 MB），解析后返回导入对象和预览 |
+| POST | `/api/v1/sites/{site}/imports` | 所有者 | 上传（multipart：`format` 是 `json`、`waline`、`twikoo`、`artrans`、`wxr`，`file` 最大 50 MB、最多 10 万条评论），解析后返回导入对象和预览。只有已批准或已上线的站点能导入，否则 `403 site_inactive`；每站点每天 5 次，超出 `429`；文件超过条数上限，或站点导入的评论会超过 20 万条，`422 import_invalid`，`message` 说明。只保存解析结果，原始文件不保存（[sites.md §7](sites.md#7-导入)） |
 | GET | `/api/v1/sites/{site}/imports/{id}` | 所有者 | 导入对象：`{id, format, status, mapping, stats, error, created_at, finished_at}`；`stats.preview` 是预览（[sites.md §7](sites.md#7-导入)），完成后另有 `inserted`、`skipped`、`failed`、`unmatched` |
 | PUT | `/api/v1/sites/{site}/imports/{id}/mapping` | 所有者 | 地址改写规则 `{origin?, rewrites?: [{from, to}], wordpress_keys?: "url" | "post_id"}`，重新预览 |
 | POST | `/api/v1/sites/{site}/imports/{id}/run` | 所有者 | 执行，`202`；worker 在后台导入，轮询 `GET` 看结果 |
-| GET | `/api/v1/sites/{site}/export` | 所有者 | 附件：`format=json`（[export-format.md](../export-format.md)）、`artrans` 或 `wxr`（[sites.md §8](sites.md#8-导出)） |
+| GET | `/api/v1/sites/{site}/export` | 所有者 | 附件：`format=json`（[export-format.md](../export-format.md)）、`artrans` 或 `wxr`（[sites.md §8](sites.md#8-导出)）；作者删除的评论只有占位，正文为空 |
 
 站点对象：
 
@@ -286,7 +287,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/hooks/idp` | 身份服务的事件推送，校验签名（不对 `401`），按事件 ID 去重，读取用户当前状态后才处理（[login.md §7](login.md#7-账号删除与停用)）；身份服务读不到或删除未得到确认时 `503`，留给对账 |
+| POST | `/hooks/idp` | 身份服务的事件推送，校验签名（不对 `401`），读取用户当前状态后才处理，推送的事件 ID 不记录（[login.md §7](login.md#7-账号删除与停用)）；身份服务读不到或删除未得到确认时 `503`，留给对账 |
 | POST | `/auth/backchannel-logout` | 身份服务的 back-channel logout，表单字段 `logout_token`，校验后按 `sid`（没有时按 `sub`）删除会话（[login.md §6](login.md#6-退出)）；无效返回 `400 {"error": "invalid_request"}` |
 | GET、POST | `/unsubscribe?t=` | 退订页；POST 退订，支持 RFC 8058 一键退订。令牌是无状态的签名，旧邮件里的链接一直有效 |
 | GET、POST | `/mute?t=` | 登录读者关闭某个讨论页通知的页面，令牌来自通知邮件 |
@@ -310,12 +311,12 @@
 | 403 | `edit_window_closed` | 超过编辑窗口 |
 | 403 | `guest_not_allowed` | 站点不接受访客评论 |
 | 404 | `not_found` | 资源不存在，或无权知道它存在 |
-| 409 | `conflict` | 比如 origin 已属于别的站点、重复的 challenge、10 分钟内的重复评论 |
+| 409 | `conflict` | 比如 origin 已被别的站点验证、重复的 challenge、10 分钟内的重复评论 |
 | 409 | `sole_owner` | 删除数据前要先处理自己唯一拥有的站点 |
 | 410 | `login_expired` | 登录交易过期或已兑换 |
 | 415 | `invalid_request` | 请求体不是 JSON |
 | 422 | `verification_failed` | 站点验证没通过，结果里说明查到了什么 |
-| 422 | `import_invalid` | 导入文件无法解析 |
+| 422 | `import_invalid` | 导入文件无法解析，或超出条数、站点配额 |
 | 429 | `rate_limited` | 超出限流，带 `Retry-After` |
 | 500 | `internal` | 服务端错误 |
 | 503 | `unavailable` | 身份服务连不上，或组件资源没有构建进二进制 |
@@ -327,7 +328,7 @@
 读者中心和站点控制台是 `web/console/` 下的 React 单页应用（[architecture.md §7](architecture.md#7-技术选型)），和接口同源，构建产物打进 Go 二进制：
 
 - **构建**：Vite 的 `base` 是 `/static/console/`，输出到 `web/console/dist`（`index.html` 加 `assets/` 下带哈希的文件）。`web/console/dist/.gitkeep` 是提交进仓库的占位，没有构建时 Go 也能编译；Vite 清空 `dist` 后由 `make web` 放回。
-- **服务端怎么交付**：`GET /me`、`/me/*`、`/console`、`/console/*` 都返回 `web/console/dist/index.html`（`Cache-Control: no-cache`），路由由前端处理；`/static/console/<路径>` 返回 `dist/<路径>`，`assets/` 下长期缓存，其余缓存 5 分钟。没有构建时这些页面返回 `503` 和一句说明。
+- **服务端怎么交付**：`GET /me`、`/me/*`、`/console`、`/console/*` 都返回 `web/console/dist/index.html`（`Cache-Control: no-cache`），路由由前端处理；`/static/console/<路径>` 返回 `dist/<路径>`，`assets/` 下长期缓存，其余缓存 5 分钟；但 `.html` 文件和目录一律 `404`，页面只经上面的路由、带着下面的 CSP 交付，免得 `/static/console/index.html` 绕开 `frame-ancestors 'none'` 被嵌进别的网站。没有构建时这些页面返回 `503` 和一句说明。
 - **CSP**：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`。不能有内联脚本、第三方脚本、网络字体和外链图片；组件库的内联样式可以。
 - **登录**：`GET /api/v1/me` 返回 `401` 时，整页跳到 `/auth/login?return=<当前路径>`；登录后回到那个路径。退出用 `POST /auth/logout`。写请求带 `X-CSRF-Token`（`/api/v1/me` 的 `csrf_token`）。
 - **服务端会链接到的页面**，前端要有：`/me`（读者中心首页，组件菜单里的「读者中心」）、`/me/claims/{id}?t=<令牌>`（认领邮件，§6）、`/console/sites/{site}`（站点）、`/console/sites/{site}/comments`（审核队列，站长通知邮件和组件里的「在控制台管理」）、`/console/sites/{site}/reports`（举报，紧急举报邮件）。

@@ -55,7 +55,7 @@
 | `author.email` | 只有访客有：访客在这个站点的评论框里留下的邮箱。登录读者的邮箱永远不导出（[sites.md §8](design/sites.md#8-导出)） |
 | `author.ref` | 导入来源记下的作者引用，比如 Giscus 的 GitHub 用户名（C4） |
 | `body` | `format` 现在只有 `markdown`；`source` 是原文，HTML 由导入方重新渲染 |
-| `status` | `published`、`pending`、`spam`、`hidden`、`deleted`；删除和垃圾也导出，删除超过保留期的正文是空串 |
+| `status` | `published`、`pending`、`spam`、`hidden`、`deleted`；删除和垃圾也导出。`deleted` 的评论只是占位，`body.source` 一律是空串：作者删掉的内容不再交给博主 |
 | `pinned` | 是否置顶，只有顶层评论可能为 `true` |
 | `source` | 从别的系统导入的评论记下 `{"system": "waline", "id": "原 ID"}`，原生评论为 `null` |
 
