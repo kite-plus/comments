@@ -242,7 +242,7 @@
 | GET | `/api/v1/sites/{site}/imports/{id}` | 所有者 | 导入对象：`{id, format, status, mapping, stats, error, created_at, finished_at}`；`stats.preview` 是预览（[sites.md §7](sites.md#7-导入)），完成后另有 `inserted`、`skipped`、`failed`、`unmatched` |
 | PUT | `/api/v1/sites/{site}/imports/{id}/mapping` | 所有者 | 地址改写规则 `{origin?, rewrites?: [{from, to}], wordpress_keys?: "url" | "post_id"}`，重新预览 |
 | POST | `/api/v1/sites/{site}/imports/{id}/run` | 所有者 | 执行，`202`；worker 在后台导入，轮询 `GET` 看结果 |
-| GET | `/api/v1/sites/{site}/export` | 所有者 | 附件：`format=json`（[export-format.md](../export-format.md)）或 `artrans`；`wxr` 未做（[sites.md §8](sites.md#8-导出)） |
+| GET | `/api/v1/sites/{site}/export` | 所有者 | 附件：`format=json`（[export-format.md](../export-format.md)）、`artrans` 或 `wxr`（[sites.md §8](sites.md#8-导出)） |
 
 站点对象：
 
