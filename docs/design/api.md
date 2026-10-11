@@ -191,13 +191,13 @@
 {
   "id": "账号 ID", "display_name": "某读者", "avatar": "/api/v1/me/avatar", "avatar_kind": "idp", "has_idp_avatar": true,
   "homepage_url": "", "locale": "zh-CN", "email": "a@b.example", "notify_replies": true, "on_account_delete": "remove",
-  "is_platform_admin": false, "suspended": false, "created_at": "…",
+  "is_platform_admin": false, "suspended": false, "created_at": "…", "account_url": "https://id.kite.plus/ui/console/users/me",
   "sites": [{"id": "站点 ID", "name": "某某的博客", "role": "owner", "status": "active"}],
   "csrf_token": "…"
 }
 ```
 
-`email` 是身份服务标记为已验证的邮箱，只给读者本人看。我的评论和通知里的评论：
+`email` 是身份服务标记为已验证的邮箱，只给读者本人看。`account_url` 是身份服务的账号页，改邮箱、密码和删除 Kite Plus 账号都在那里。我的评论和通知里的评论：
 
 ```json
 {"id", "root_id", "parent_id", "site": {"id", "name"}, "thread": {"id", "url", "title"}, "url": "文章地址#kc-评论 ID",
@@ -286,7 +286,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/hooks/idp` | 身份服务的事件推送，校验签名，按事件 ID 去重，读取用户当前状态后才处理（[login.md §7](login.md#7-账号删除与停用)） |
+| POST | `/hooks/idp` | 身份服务的事件推送，校验签名（不对 `401`），按事件 ID 去重，读取用户当前状态后才处理（[login.md §7](login.md#7-账号删除与停用)）；身份服务读不到或删除未得到确认时 `503`，留给对账 |
 | POST | `/auth/backchannel-logout` | 身份服务的 back-channel logout，表单字段 `logout_token`，校验后按 `sid`（没有时按 `sub`）删除会话（[login.md §6](login.md#6-退出)）；无效返回 `400 {"error": "invalid_request"}` |
 | GET、POST | `/unsubscribe?t=` | 退订页；POST 退订，支持 RFC 8058 一键退订。令牌是无状态的签名，旧邮件里的链接一直有效 |
 | GET、POST | `/mute?t=` | 登录读者关闭某个讨论页通知的页面，令牌来自通知邮件 |

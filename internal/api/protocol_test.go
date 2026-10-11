@@ -372,3 +372,21 @@ func TestIDPWebhook(t *testing.T) {
 		t.Errorf("account data survived removal: %v", err)
 	}
 }
+
+// A push the identity service cannot confirm waits for reconciliation.
+func TestIDPWebhookDefersWhenTheIdentityServiceIsUnreadable(t *testing.T) {
+	e := newEnv(t)
+	e.popupLogin("ann", e.site)
+	e.srv.IDP = &idp.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}
+	body := `{"aggregateID":"ann","aggregateType":"user","sequence":4,"event_type":"user.deactivated","created_at":"2026-10-10T00:00:00Z"}`
+	w := e.do(req{method: "POST", path: "/hooks/idp", body: body, headers: map[string]string{"Content-Type": "application/json", idp.SignatureHeader: idp.Sign([]byte(body), "hook-secret", time.Now())}})
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unconfirmed push = %d", w.Code)
+	}
+	if u, _ := e.st.UserBySubject(t.Context(), e.idp.Issuer, "ann"); u.SuspendedAt != nil {
+		t.Error("acted on an unconfirmed push")
+	}
+	if seen, _ := e.st.IDPEventSeen(t.Context(), "ann:4"); seen {
+		t.Error("an unconfirmed push was recorded, so reconciliation would skip it")
+	}
+}

@@ -38,10 +38,20 @@ const (
 	UserUnlocked    = "user.unlocked"
 )
 
-// Types lists the event types reconciliation asks for.
-var Types = []string{UserRemoved, UserDeactivated, UserReactivated, UserLocked, UserUnlocked}
+// Types lists the event types reconciliation asks for. Locking is left
+// out: anyone can lock a reader by guessing wrong passwords, so it never
+// suspends anyone here.
+var Types = []string{UserRemoved, UserDeactivated, UserReactivated}
 
-var ErrSignature = errors.New("webhook signature is not valid")
+var (
+	ErrSignature = errors.New("webhook signature is not valid")
+	// ErrUnavailable means the identity service could not be read; the
+	// event waits for the next reconciliation.
+	ErrUnavailable = errors.New("identity service unavailable")
+	// ErrUnconfirmed means the user looks deleted but the event search
+	// has no removal for them yet.
+	ErrUnconfirmed = errors.New("removal not confirmed by the event search")
+)
 
 // VerifySignature checks a "t=<unix>,v1=<hex>" header: HMAC-SHA256 under
 // the signing key over "<t>.<body>", within SignatureTolerance of now.
@@ -96,6 +106,9 @@ type Event struct {
 	Type    string
 	Subject string
 	At      time.Time
+	// FromSearch marks an event read from the event search, which is
+	// authoritative; webhook deliveries are only hints.
+	FromSearch bool
 }
 
 // ParseWebhook reads an Actions v2 event delivery.
@@ -144,7 +157,7 @@ func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event,
 	r.Header.Set("Content-Type", "application/json")
 	resp, err := c.do(r)
 	if err != nil {
-		return nil, cursor, err
+		return nil, cursor, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
@@ -176,7 +189,7 @@ func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event,
 		if e.Aggregate.ID == "" || e.Type.Type == "" {
 			continue
 		}
-		events = append(events, Event{ID: e.Aggregate.ID + ":" + seq, Type: e.Type.Type, Subject: e.Aggregate.ID, At: e.CreationDate})
+		events = append(events, Event{ID: e.Aggregate.ID + ":" + seq, Type: e.Type.Type, Subject: e.Aggregate.ID, At: e.CreationDate, FromSearch: true})
 		if !e.CreationDate.IsZero() {
 			next = e.CreationDate.UTC().Format(time.RFC3339Nano)
 		}
@@ -203,7 +216,8 @@ const (
 )
 
 // UserState reads a user's current state: deleted, inactive, locked or
-// active.
+// active. A 404 counts as deleted only when its body is the identity
+// service's own not-found error (gRPC code 5), not a proxy's page.
 func (c *Client) UserState(ctx context.Context, sub string) (string, error) {
 	r, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.BaseURL, "/")+"/v2/users/"+url.PathEscape(sub), nil)
 	if err != nil {
@@ -211,18 +225,23 @@ func (c *Client) UserState(ctx context.Context, sub string) (string, error) {
 	}
 	resp, err := c.do(r)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNotFound {
-		return StateDeleted, nil
-	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		var e struct {
+			Code int `json:"code"`
+		}
+		if json.Unmarshal(raw, &e) == nil && e.Code == 5 {
+			return StateDeleted, nil
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("user lookup: HTTP %d: %.200s", resp.StatusCode, raw)
+		return "", fmt.Errorf("%w: user lookup: HTTP %d: %.200s", ErrUnavailable, resp.StatusCode, raw)
 	}
 	var out struct {
 		User struct {
@@ -243,27 +262,56 @@ func (c *Client) UserState(ctx context.Context, sub string) (string, error) {
 	return StateActive, nil
 }
 
-// stateOf is what an event implies when the user cannot be looked up.
+// Removed reports whether the event search, which is authoritative, has a
+// removal of the user.
+func (c *Client) Removed(ctx context.Context, sub string) (bool, error) {
+	body, _ := json.Marshal(map[string]any{"asc": true, "limit": 1, "eventTypes": []string{UserRemoved},
+		"aggregateTypes": []string{"user"}, "aggregateId": sub})
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/admin/v1/events/_search", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	r.Header.Set("Content-Type", "application/json")
+	resp, err := c.do(r)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("%w: event search: HTTP %d", ErrUnavailable, resp.StatusCode)
+	}
+	var out struct {
+		Events []json.RawMessage `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return false, err
+	}
+	return len(out.Events) > 0, nil
+}
+
+// stateOf is what an event implies when there is no client to ask.
 func stateOf(eventType string) string {
 	switch eventType {
 	case UserRemoved:
 		return StateDeleted
 	case UserDeactivated:
 		return StateInactive
-	case UserLocked:
-		return StateLocked
 	}
 	return StateActive
 }
 
-// Apply acts on one event once. With a client, the event is only a hint:
-// the user's current state is read from the identity service and applied,
-// so a forged or stale delivery cannot delete or suspend anyone. Without
-// one, the event type decides. A deleted account's data goes as its
-// on_account_delete setting says; an inactive or locked account is
-// suspended; an active one has a suspension by the identity service
-// lifted. Events for readers who never used this service are recorded and
-// otherwise ignored.
+// Apply acts on one event once. With a client, a webhook delivery is only
+// a hint, since another service's token can read this service's signing
+// key: the user's current state is read from the identity service and
+// applied, and data is deleted only when the user is gone and the
+// authoritative event search has their removal. Without a client (tests),
+// the event type decides. An inactive account is suspended and an active
+// one has the identity service's suspension lifted; locking changes
+// nothing. A deleted account's data goes as its on_account_delete setting
+// says. Events for readers who never used this service are recorded and
+// otherwise ignored. ErrUnavailable and ErrUnconfirmed leave the event
+// unrecorded for the next reconciliation.
 func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Event) (applied bool, err error) {
 	seen, err := st.IDPEventSeen(ctx, ev.ID)
 	if err != nil || seen {
@@ -271,7 +319,7 @@ func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Ev
 	}
 	u, err := st.UserBySubject(ctx, issuer, ev.Subject)
 	switch {
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound) || ev.Type == UserLocked || ev.Type == UserUnlocked:
 	case err != nil:
 		return false, err
 	default:
@@ -280,12 +328,24 @@ func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Ev
 			if state, err = c.UserState(ctx, ev.Subject); err != nil {
 				return false, err
 			}
+			// A removal read from the search is its own confirmation.
+			confirmed := ev.FromSearch && ev.Type == UserRemoved
+			if state == StateDeleted && !confirmed {
+				removed, err := c.Removed(ctx, ev.Subject)
+				if err != nil {
+					return false, err
+				}
+				if !removed {
+					return false, ErrUnconfirmed
+				}
+			}
 		}
 		switch state {
 		case StateDeleted:
 			err = st.DeleteUserData(ctx, u.ID, u.OnAccountDelete, true)
-		case StateInactive, StateLocked:
-			err = st.SuspendUser(ctx, u.ID, "idp:"+state)
+		case StateInactive:
+			err = st.SuspendUser(ctx, u.ID, "idp:inactive")
+		case StateLocked:
 		default:
 			err = st.UnsuspendUser(ctx, u.ID, "idp:")
 		}

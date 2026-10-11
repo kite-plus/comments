@@ -128,6 +128,9 @@ func (w *Worker) Reconcile(ctx context.Context) {
 	if cursor == "" {
 		cursor = w.now().Add(-policy.IDPEventsKept).UTC().Format(time.RFC3339Nano)
 	}
+	// A subject whose state cannot be read is retried next run: the stored
+	// cursor never moves past the earliest such event.
+	var retryFrom *time.Time
 	for range 20 {
 		events, next, err := w.IDP.Search(ctx, cursor, 500)
 		if err != nil {
@@ -138,14 +141,24 @@ func (w *Worker) Reconcile(ctx context.Context) {
 		for _, ev := range events {
 			ok, err := idp.Apply(ctx, w.Store, w.IDP, w.Issuer, ev)
 			if err != nil {
-				w.Log.Error("reconcile", "event", ev.ID, "error", err)
-				return
+				w.Log.Warn("reconcile: event left for the next run", "event", ev.ID, "error", err)
+				if retryFrom == nil || ev.At.Before(*retryFrom) {
+					at := ev.At
+					retryFrom = &at
+				}
+				continue
 			}
 			if ok {
 				applied++
 			}
 		}
-		if err := w.Store.SetIDPCursor(ctx, next); err != nil {
+		stored := next
+		if retryFrom != nil {
+			if t, err := time.Parse(time.RFC3339Nano, next); err != nil || retryFrom.Before(t) {
+				stored = retryFrom.UTC().Format(time.RFC3339Nano)
+			}
+		}
+		if err := w.Store.SetIDPCursor(ctx, stored); err != nil {
 			w.Log.Error("reconcile", "error", err)
 			return
 		}

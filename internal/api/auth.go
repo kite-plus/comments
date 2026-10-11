@@ -366,6 +366,12 @@ func (s *Server) idpHook(c *gin.Context) {
 		return
 	}
 	applied, err := idp.Apply(c.Request.Context(), s.Store, s.IDP, s.Issuer, ev)
+	if errors.Is(err, idp.ErrUnavailable) || errors.Is(err, idp.ErrUnconfirmed) {
+		// The hourly reconciliation picks the event up.
+		s.Log.Warn("identity event deferred", "type", ev.Type, "error", err)
+		s.fail(c, http.StatusServiceUnavailable, codeUnavailable)
+		return
+	}
 	if err != nil {
 		s.storeError(c, err)
 		return

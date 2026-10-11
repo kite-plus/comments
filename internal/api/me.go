@@ -41,7 +41,9 @@ func (s *Server) meJSON(c *gin.Context, u model.User) (gin.H, error) {
 		"has_idp_avatar": u.HasAvatar, "homepage_url": u.HomepageURL, "locale": u.Locale, "email": email,
 		"notify_replies": u.NotifyReplies, "on_account_delete": u.OnAccountDelete, "is_platform_admin": u.IsPlatformAdmin,
 		"suspended": u.SuspendedAt != nil, "created_at": u.CreatedAt.UTC(), "sites": mine,
-		"csrf_token": csrfToken(c.GetString("session_token")),
+		// Where the Kite Plus account itself is managed and deleted.
+		"account_url": strings.TrimRight(s.Issuer, "/") + "/ui/console/users/me",
+		"csrf_token":  csrfToken(c.GetString("session_token")),
 	}, nil
 }
 
