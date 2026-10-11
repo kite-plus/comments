@@ -138,17 +138,20 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// SearchOverlap is how far before the cursor a search starts, against
-// events committed slightly out of order; repeats deduplicate by ID.
+// SearchOverlap is how far before the stored cursor a reconciliation run
+// starts, against events committed slightly out of order; repeats
+// deduplicate by ID.
 const SearchOverlap = 5 * time.Minute
 
-// Search returns user events after cursor, oldest first, and the cursor to
-// continue from: the creation time of the last event seen.
-func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event, string, error) {
+// Search returns up to limit user events created after from (exclusive;
+// zero for the beginning), oldest first, and the creation time of the last
+// one, from where the next page goes on.
+func (c *Client) Search(ctx context.Context, from time.Time, limit int) ([]Event, time.Time, error) {
 	req := map[string]any{"asc": true, "limit": limit, "eventTypes": Types, "aggregateTypes": []string{"user"}}
-	if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
-		req["from"] = t.Add(-SearchOverlap).UTC().Format(time.RFC3339Nano)
+	if !from.IsZero() {
+		req["from"] = from.UTC().Format(time.RFC3339Nano)
 	}
+	cursor := from
 	body, _ := json.Marshal(req)
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/admin/v1/events/_search", bytes.NewReader(body))
 	if err != nil {
@@ -191,7 +194,7 @@ func (c *Client) Search(ctx context.Context, cursor string, limit int) ([]Event,
 		}
 		events = append(events, Event{ID: e.Aggregate.ID + ":" + seq, Type: e.Type.Type, Subject: e.Aggregate.ID, At: e.CreationDate, FromSearch: true})
 		if !e.CreationDate.IsZero() {
-			next = e.CreationDate.UTC().Format(time.RFC3339Nano)
+			next = e.CreationDate
 		}
 	}
 	return events, next, nil
@@ -311,11 +314,16 @@ func stateOf(eventType string) string {
 // nothing. A deleted account's data goes as its on_account_delete setting
 // says. Events for readers who never used this service are recorded and
 // otherwise ignored. ErrUnavailable and ErrUnconfirmed leave the event
-// unrecorded for the next reconciliation.
+// unrecorded for the next reconciliation. Only search events are recorded
+// in idp_events: a push is a hint anyone holding a signing key could send,
+// so it must never mark an event handled; acting on the current state is
+// safe to repeat.
 func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Event) (applied bool, err error) {
-	seen, err := st.IDPEventSeen(ctx, ev.ID)
-	if err != nil || seen {
-		return false, err
+	if ev.FromSearch {
+		seen, err := st.IDPEventSeen(ctx, ev.ID)
+		if err != nil || seen {
+			return false, err
+		}
 	}
 	u, err := st.UserBySubject(ctx, issuer, ev.Subject)
 	switch {
@@ -344,14 +352,17 @@ func Apply(ctx context.Context, st *store.Store, c *Client, issuer string, ev Ev
 		case StateDeleted:
 			err = st.DeleteUserData(ctx, u.ID, u.OnAccountDelete, true)
 		case StateInactive:
-			err = st.SuspendUser(ctx, u.ID, "idp:inactive")
+			err = st.SetIDPSuspended(ctx, u.ID, true)
 		case StateLocked:
 		default:
-			err = st.UnsuspendUser(ctx, u.ID, "idp:")
+			err = st.SetIDPSuspended(ctx, u.ID, false)
 		}
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return false, err
 		}
+	}
+	if !ev.FromSearch {
+		return true, nil
 	}
 	return true, st.RecordIDPEvent(ctx, ev.ID, ev.Type)
 }

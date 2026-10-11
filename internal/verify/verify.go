@@ -213,7 +213,7 @@ func (f *Fetcher) Check(ctx context.Context, origin string, matches func(token s
 			notes = append(notes, "meta: the home page has no kite-comments-site tag")
 		}
 	} else {
-		notes = append(notes, "meta: home page unreachable: "+err.Error())
+		notes = append(notes, "meta: home page unreachable: "+Describe(err))
 	}
 
 	if body, _, err := f.Get(ctx, origin+FilePath, 4096); err == nil {
@@ -223,10 +223,38 @@ func (f *Fetcher) Check(ctx context.Context, origin string, matches func(token s
 		}
 		notes = append(notes, "file: "+FilePath+" does not match")
 	} else {
-		notes = append(notes, "file: "+FilePath+" unreachable: "+err.Error())
+		notes = append(notes, "file: "+FilePath+" unreachable: "+Describe(err))
 	}
 	res.Detail = strings.Join(notes, "; ")
 	return res
+}
+
+// Describe says why a fetch failed without naming addresses: owners see
+// it, and a resolved internal IP must not leak to them.
+func Describe(err error) string {
+	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {
+		return "timed out"
+	}
+	switch {
+	case errors.Is(err, ErrBlocked):
+		return "the host does not resolve to a public address on port 80 or 443"
+	case errors.Is(err, ErrTooLarge):
+		return "the response is too large"
+	}
+	msg := err.Error()
+	switch {
+	case strings.HasPrefix(msg, "HTTP "):
+		return msg
+	case strings.Contains(msg, "redirect"):
+		return "redirects too often or to another host"
+	case strings.Contains(msg, "no such host"):
+		return "the host name does not resolve"
+	case strings.Contains(msg, "certificate") || strings.Contains(msg, "tls"):
+		return "TLS failed"
+	case strings.Contains(msg, "refused"):
+		return "the connection was refused"
+	}
+	return "the connection failed"
 }
 
 // MetaTokens returns the content of every kite-comments-site meta tag in a

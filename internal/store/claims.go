@@ -83,18 +83,22 @@ func (s *Store) VerifyClaim(ctx context.Context, id, userID int64, tokenHash []b
 
 // ConfirmClaim moves the verified address's guest comments to the account:
 // they show its current name and avatar, the guest address is dropped and
-// the old nickname goes to the moderation record (sites.md section 6).
+// the old nickname goes to the moderation record (sites.md section 6). A
+// claim is confirmed once and takes only comments written before it was
+// verified, so a later guest comment with the address stays a guest's.
 func (s *Store) ConfirmClaim(ctx context.Context, id, userID int64) (int, error) {
 	n := 0
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		var hmac []byte
-		err := tx.QueryRow(ctx, `SELECT email_hmac FROM email_claims WHERE id = $1 AND user_id = $2 AND verified_at IS NOT NULL FOR UPDATE`,
-			id, userID).Scan(&hmac)
+		var verified time.Time
+		err := tx.QueryRow(ctx, `SELECT email_hmac, verified_at FROM email_claims WHERE id = $1 AND user_id = $2
+			AND verified_at IS NOT NULL AND confirmed_at IS NULL FOR UPDATE`, id, userID).Scan(&hmac, &verified)
 		if err != nil {
 			return notFound(err)
 		}
 		rows, err := tx.Query(ctx, `SELECT c.id, c.site_id, coalesce(c.author_name, '') FROM comments c JOIN sites st ON st.id = c.site_id
-			WHERE c.author_kind = 'guest' AND c.author_email_hmac = $1 AND c.status <> 'deleted' AND st.status <> 'deleted' FOR UPDATE OF c`, hmac)
+			WHERE c.author_kind = 'guest' AND c.author_email_hmac = $1 AND c.status <> 'deleted' AND st.status <> 'deleted'
+			AND c.created_at <= $2 FOR UPDATE OF c`, hmac, verified)
 		if err != nil {
 			return err
 		}
@@ -128,7 +132,7 @@ func (s *Store) ConfirmClaim(ctx context.Context, id, userID int64) (int, error)
 			}
 		}
 		n = len(list)
-		_, err = tx.Exec(ctx, `UPDATE email_claims SET claimed_count = claimed_count + $2 WHERE id = $1`, id, n)
+		_, err = tx.Exec(ctx, `UPDATE email_claims SET claimed_count = claimed_count + $2, confirmed_at = now() WHERE id = $1`, id, n)
 		return err
 	})
 	return n, err

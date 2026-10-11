@@ -67,6 +67,8 @@ func TestInvalidValues(t *testing.T) {
 		// The development setting must never reach an https deployment.
 		{"COMMENTS_DEV_HTTP_ORIGINS": "true"},
 		{"COMMENTS_DEV_HTTP_ORIGINS": "true", "COMMENTS_PUBLIC_URL": "https://comments.example"},
+		{"COMMENTS_ALLOW_PRIVATE_NETWORKS": "true"},
+		{"COMMENTS_ALLOW_PRIVATE_NETWORKS": "true", "COMMENTS_PUBLIC_URL": "https://comments.example"},
 	}
 	for _, m := range cases {
 		if _, err := Load(env(m)); err == nil {

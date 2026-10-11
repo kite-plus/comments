@@ -443,3 +443,17 @@ func (s *Server) claimSuggestion(c *gin.Context) {
 }
 
 func profileNotify(v *bool) store.ProfileUpdate { return store.ProfileUpdate{NotifyReplies: v} }
+
+// deleteMyComment is DELETE /api/v1/me/comments/{id}: the reader deletes
+// one of their comments from the reader center, on any site.
+func (s *Server) deleteMyComment(c *gin.Context) {
+	id, ok := s.idParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteOwnComment(c.Request.Context(), id, currentUser(c).ID); err != nil {
+		s.storeError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}

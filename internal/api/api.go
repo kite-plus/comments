@@ -62,6 +62,8 @@ type Server struct {
 	guestThreads *limiter
 	reports      *limiter
 	verifies     *limiter
+	uploads      *limiter
+	siteCreates  *limiter
 	claims       *limiter
 	writes       *limiter
 
@@ -95,6 +97,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	s.guestThreads = newLimiter(policy.NewThreadsPerGuest, s.Now)
 	s.reports = newLimiter(policy.ReportsPerUser, s.Now)
 	s.verifies = newLimiter(policy.VerifyPerSite, s.Now)
+	s.uploads = newLimiter(policy.ImportUploadsPerSite, s.Now)
+	s.siteCreates = newLimiter(policy.SiteCreatesPerUser, s.Now)
 	s.claims = newLimiter(policy.ClaimMailsPerUser, s.Now)
 	s.writes = newLimiter(policy.Rate{Max: 120, Window: time.Minute}, s.Now)
 	if s.DevHTTPOrigins {
@@ -173,6 +177,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	me.DELETE("", s.deleteMe)
 	me.GET("/avatar", s.myAvatar)
 	me.GET("/comments", s.myComments)
+	me.DELETE("/comments/:id", s.deleteMyComment)
 	me.GET("/notifications", s.myNotifications)
 	me.POST("/notifications/read", s.markRead)
 	me.GET("/mutes", s.myMutes)

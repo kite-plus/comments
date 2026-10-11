@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -132,6 +133,19 @@ func (s *Server) createSite(c *gin.Context) {
 		}
 	}
 	u := currentUser(c)
+	if ok, retry := s.siteCreates.allow(strconv.FormatInt(u.ID, 10)); !ok {
+		s.tooMany(c, retry)
+		return
+	}
+	if n, err := s.Store.CountSites(c.Request.Context(), u.ID); err != nil || n >= policy.SitesPerAccount {
+		if err != nil {
+			s.storeError(c, err)
+			return
+		}
+		s.fail(c, http.StatusForbidden, codeForbidden, t(c, fmt.Sprintf("一个账号最多拥有 %d 个站点。", policy.SitesPerAccount),
+			fmt.Sprintf("An account may own at most %d sites.", policy.SitesPerAccount)))
+		return
+	}
 	site, err := s.Store.CreateSite(c.Request.Context(), store.NewSite{Name: name, Origins: origins, CreatedBy: &u.ID})
 	if err != nil {
 		s.storeError(c, err)
@@ -341,14 +355,23 @@ func (s *Server) checkVerification(c *gin.Context) {
 			r = s.Fetcher.Check(c.Request.Context(), o.Origin, matches)
 		}
 		if r.OK {
-			passed++
-			if err := s.Store.MarkOriginVerified(c.Request.Context(), site.ID, o.Origin, proof); err != nil {
+			err := s.Store.MarkOriginVerified(c.Request.Context(), site.ID, o.Origin, proof)
+			switch {
+			case errors.Is(err, store.ErrConflict):
+				// Only one site holds an origin verified (sites.md section 2).
+				r = verify.Result{Origin: o.Origin, Detail: t(c, "这个 origin 已被另一个站点验证。", "Another site has verified this origin.")}
+			case err != nil:
+				s.storeError(c, err)
+				return
+			default:
+				passed++
+			}
+		}
+		if !r.OK {
+			if err := s.Store.RecordVerificationError(c.Request.Context(), site.ID, o.Origin+": "+r.Detail); err != nil {
 				s.storeError(c, err)
 				return
 			}
-		} else if err := s.Store.RecordVerificationError(c.Request.Context(), site.ID, o.Origin+": "+r.Detail); err != nil {
-			s.storeError(c, err)
-			return
 		}
 		results = append(results, r)
 	}
@@ -506,7 +529,7 @@ func (s *Server) updateThread(c *gin.Context) {
 		u.PagePublished = &none
 	} else if in.PublishedAt != nil {
 		p := parsePublished(*in.PublishedAt)
-		if p == nil {
+		if p == nil || p.After(s.Now().Add(policy.PublishedFutureTolerance)) {
 			s.fail(c, http.StatusBadRequest, codeInvalidRequest)
 			return
 		}
@@ -558,6 +581,7 @@ func (s *Server) moveThread(c *gin.Context) {
 func banJSON(b store.Ban) gin.H {
 	kind := "user"
 	switch {
+	case b.Subject != "":
 	case b.EmailHMAC != nil:
 		kind = "email"
 	case b.IPHMAC != nil:
@@ -626,18 +650,20 @@ func (s *Server) buildBan(c *gin.Context, siteID int64, in banInput) (store.Ban,
 	}
 	switch in.Kind {
 	case "user":
+		var userID int64
 		switch {
 		case cm != nil && cm.AuthorUserID != nil:
-			b.UserID = cm.AuthorUserID
+			userID = *cm.AuthorUserID
 		case in.AuthorID != "" && siteID != 0:
 			id, err := s.Store.UserByAuthorID(ctx, siteID, in.AuthorID)
 			if err != nil {
 				return b, false
 			}
-			b.UserID = &id
+			userID = id
 		default:
 			return b, false
 		}
+		return s.banIdentity(c, b, userID)
 	case "email":
 		switch {
 		case cm != nil && cm.AuthorEmailHMAC != nil:
@@ -659,6 +685,17 @@ func (s *Server) buildBan(c *gin.Context, siteID int64, in banInput) (store.Ban,
 	default:
 		return b, false
 	}
+	return b, true
+}
+
+// banIdentity names the reader of a user ban by identity, so the ban
+// survives the reader deleting their data (data-model.md section 3.5).
+func (s *Server) banIdentity(c *gin.Context, b store.Ban, userID int64) (store.Ban, bool) {
+	iss, sub, err := s.Store.Identity(c.Request.Context(), userID)
+	if err != nil {
+		return b, false
+	}
+	b.Issuer, b.Subject = iss, sub
 	return b, true
 }
 

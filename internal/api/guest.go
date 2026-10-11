@@ -97,13 +97,33 @@ func (s *Server) guestAuthor(c *gin.Context, site model.Site, in commentIn, n *s
 		return false
 	}
 	n.AuthorKind, n.AuthorName, n.AuthorURL = model.AuthorGuest, name, homepage
-	n.AuthorEmailEnc, n.AuthorEmailHMAC, n.NotifyEmail = s.Keys.Encrypt(email), emailHMAC, g.Notify
+	n.AuthorEmailEnc, n.AuthorEmailHMAC = s.Keys.Encrypt(email), emailHMAC
+	if g.Notify {
+		// Reply mail only where this browser confirmed it before; anything
+		// else asks again by mail once the comment exists.
+		ok, err := s.Store.GuestConsent(c.Request.Context(), emailHMAC, browserHash(g.Token))
+		if err != nil {
+			s.storeError(c, err)
+			return false
+		}
+		n.NotifyEmail = ok
+	}
 	return true
 }
 
-// confirmGuestEmail sends the one confirmation mail a guest address gets
-// before any reply mail (moderation.md section 6.1).
-func (s *Server) confirmGuestEmail(c *gin.Context, site model.Site, in commentIn) {
+// browserHash is the stored form of the widget's guest token, nil when the
+// browser sent none.
+func browserHash(token string) []byte {
+	if len(token) != 43 {
+		return nil
+	}
+	return crypt.Hash(token)
+}
+
+// requestGuestConsent mails the address a confirmation link that turns on
+// reply mail for this comment and this browser (moderation.md section
+// 6.1). An address gets at most one such mail a day.
+func (s *Server) requestGuestConsent(c *gin.Context, site model.Site, in commentIn, commentID int64) {
 	email := validEmail(in.Guest.Email)
 	locale := model.LocaleZH
 	if in.Lang == model.LocaleEN {
@@ -111,9 +131,10 @@ func (s *Server) confirmGuestEmail(c *gin.Context, site model.Site, in commentIn
 	}
 	token := crypt.Token()
 	enc := s.Keys.Encrypt(email)
-	send, err := s.Store.PrepareGuestConfirm(c.Request.Context(), s.Keys.EmailHMAC(email), enc, crypt.Hash(token), locale)
+	send, err := s.Store.RequestGuestConsent(c.Request.Context(), s.Keys.EmailHMAC(email), enc, browserHash(in.Guest.Token),
+		commentID, crypt.Hash(token), locale)
 	if err != nil {
-		s.Log.Error("guest confirmation", "error", err)
+		s.Log.Error("guest consent", "error", err)
 		return
 	}
 	if !send {
@@ -121,7 +142,7 @@ func (s *Server) confirmGuestEmail(c *gin.Context, site model.Site, in commentIn
 	}
 	payload := encodeJSON(gin.H{"token": token, "site_id": site.ID})
 	if err := s.Store.EnqueueMail(c.Request.Context(), store.Mail{Kind: "guest_confirm", ToEnc: enc, Locale: locale, Payload: payload}); err != nil {
-		s.Log.Error("guest confirmation", "error", err)
+		s.Log.Error("guest consent", "error", err)
 	}
 }
 
@@ -152,7 +173,7 @@ func (s *Server) guestConfirmPage(c *gin.Context) {
 
 // guestConfirm is POST /guest-email/confirm.
 func (s *Server) guestConfirm(c *gin.Context) {
-	err := s.Store.ConfirmGuestEmail(c.Request.Context(), crypt.Hash(c.PostForm("t")))
+	err := s.Store.ConfirmGuestConsent(c.Request.Context(), crypt.Hash(c.PostForm("t")))
 	if errors.Is(err, store.ErrNotFound) {
 		s.messagePage(c, http.StatusBadRequest, t(c, "链接无效", "Link not valid"),
 			t(c, "这个确认链接无效或已过期。", "This confirmation link is not valid or has expired."))

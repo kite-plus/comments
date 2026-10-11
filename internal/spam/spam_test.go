@@ -30,6 +30,11 @@ func TestHostsAndDomains(t *testing.T) {
 	if !DomainListed("shop.spam.example", listed) || !DomainListed("spam.example.", listed) || DomainListed("notspam.example", listed) {
 		t.Error("domain matching")
 	}
+	// An internationalized name matches its listed punycode and back.
+	idn := map[string]bool{NormalizeDomain("Bücher.example"): true}
+	if NormalizeDomain("Bücher.example.") != "xn--bcher-kva.example" || !DomainListed("shop.bücher.example", idn) || !DomainListed("XN--BCHER-KVA.example", idn) {
+		t.Errorf("IDN matching: %q", NormalizeDomain("Bücher.example."))
+	}
 }
 
 func TestBlockedWord(t *testing.T) {

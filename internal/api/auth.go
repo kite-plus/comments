@@ -161,11 +161,33 @@ func (s *Server) redirectLogin(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, authURL)
 }
 
+// localPath accepts a path on this origin for the console's return:
+// parsed, no scheme or host, starting with "/" but not "//" or "/\", and
+// no control characters, which browsers strip before parsing (so "/\t/x"
+// would become "//x", another host).
+func localPath(raw string) bool {
+	if raw == "" || len(raw) > 500 || hasControl(raw) || strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "/\\") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "" && u.Host == "" && u.User == nil && strings.HasPrefix(u.Path, "/") &&
+		!strings.HasPrefix(u.Path, "//") && !strings.Contains(raw, "\\")
+}
+
+func hasControl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
 // returnURL accepts an absolute address on one of the site's verified
 // origins, without its fragment, against open redirects.
 func (s *Server) returnURL(site model.Site, raw string) (string, bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || utf8.RuneCountInString(raw) > policy.ThreadURLRunes {
+	if err != nil || utf8.RuneCountInString(raw) > policy.ThreadURLRunes || hasControl(raw) {
 		return "", false
 	}
 	origin, err := originOf(raw)
@@ -297,7 +319,7 @@ func (s *Server) confirm(c *gin.Context) {
 // center and console.
 func (s *Server) consoleLogin(c *gin.Context) {
 	ret := c.Query("return")
-	if !strings.HasPrefix(ret, "/") || strings.HasPrefix(ret, "//") || strings.ContainsAny(ret, "\\\r\n") || len(ret) > 500 {
+	if !localPath(ret) {
 		ret = "/me"
 	}
 	authURL, err := s.startLogin(c, store.LoginTx{Mode: store.ModeConsole, ReturnTo: ret})

@@ -86,6 +86,9 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.AllowPrivateNetworks, err = boolean(getenv, "COMMENTS_ALLOW_PRIVATE_NETWORKS"); err != nil {
 		return Config{}, err
 	}
+	if c.AllowPrivateNetworks && pub.Scheme == "https" {
+		return Config{}, errors.New("COMMENTS_ALLOW_PRIVATE_NETWORKS is for local development only and cannot be used with an https COMMENTS_PUBLIC_URL")
+	}
 	if v := strings.TrimSpace(getenv("COMMENTS_DATA_KEYS")); v != "" {
 		if c.DataKeys, err = crypt.ParseDataKeys(v); err != nil {
 			return Config{}, fmt.Errorf("COMMENTS_DATA_KEYS: %w", err)

@@ -10,6 +10,7 @@ import (
 	"github.com/kite-plus/comments/internal/crypt"
 	"github.com/kite-plus/comments/internal/importer"
 	"github.com/kite-plus/comments/internal/markup"
+	"github.com/kite-plus/comments/internal/policy"
 	"github.com/kite-plus/comments/internal/store"
 )
 
@@ -42,7 +43,7 @@ func (w *Worker) runImport(ctx context.Context, im store.Import) (map[string]any
 	out := map[string]any{"preview": previous["preview"]}
 	file, err := w.Store.ImportFile(ctx, im.ID)
 	if err != nil {
-		return out, "the uploaded file is gone"
+		return out, "the parsed upload is gone; uploads are kept 24 hours"
 	}
 	site, err := w.Store.SiteByID(ctx, im.SiteID)
 	if err != nil {
@@ -50,15 +51,16 @@ func (w *Worker) runImport(ctx context.Context, im store.Import) (map[string]any
 	}
 	var m importer.Mapping
 	_ = json.Unmarshal(im.Mapping, &m)
-	r, err := importer.Parse(im.Format, file)
-	if err != nil {
-		return out, err.Error()
+	// The upload was parsed when it came in; what is stored is the parsed
+	// comments with guest addresses encrypted.
+	var r importer.Result
+	if err := json.Unmarshal(file, &r); err != nil {
+		return out, "the parsed upload cannot be read"
 	}
-	var origins []string
-	for _, o := range site.Origins {
-		origins = append(origins, o.Origin)
+	if n, err := w.Store.ImportedCount(ctx, site.ID); err != nil || n+len(r.Comments) > policy.ImportedPerSite {
+		return out, "the site would exceed its quota of imported comments"
 	}
-	plan, _ := importer.MakePlan(r, m, importer.Site{Origins: origins, Primary: site.PrimaryOrigin(), QueryKeys: site.QueryKeys})
+	plan, _ := importer.MakePlan(r, m, importer.Site{Origins: site.VerifiedOrigins(), Primary: site.PrimaryOrigin(), QueryKeys: site.QueryKeys})
 	threads := make([]store.ImportThread, 0, len(plan.Threads))
 	for _, t := range plan.Threads {
 		threads = append(threads, store.ImportThread{Key: t.Key, URL: t.URL, Title: t.Title, PublishedAt: t.PublishedAt, Locked: t.Locked})
@@ -70,7 +72,10 @@ func (w *Worker) runImport(ctx context.Context, im store.Import) (map[string]any
 			AuthorURL: webURL(c.AuthorURL), AuthorRef: limit(c.AuthorRef, 100), BodyMD: limit(c.BodyMD, 10000),
 			RenderVersion: markup.Version, Status: c.Status, Pinned: c.Pinned, CreatedAt: c.CreatedAt, EditedAt: c.EditedAt}
 		ic.BodyHTML = markup.Render(ic.BodyMD).HTML
-		if c.Email != "" {
+		switch {
+		case len(c.EmailHMAC) > 0:
+			ic.EmailEnc, ic.EmailHMAC = c.EmailEnc, c.EmailHMAC
+		case c.Email != "":
 			ic.EmailEnc, ic.EmailHMAC = w.Keys.Encrypt(crypt.NormalizeEmail(c.Email)), w.Keys.EmailHMAC(c.Email)
 		}
 		comments = append(comments, ic)

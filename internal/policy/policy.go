@@ -9,44 +9,57 @@ import "time"
 
 // Content limits (moderation.md section 3.4).
 const (
-	CommentMaxRunes   = 5000
-	LinksPerComment   = 5
-	DisplayNameRunes  = 40
-	HomepageMaxRunes  = 300
-	ReportNoteRunes   = 500
-	ThreadTitleRunes  = 300
-	ThreadURLRunes    = 2000
-	PageKeyMaxRunes   = 200
-	ExcerptRunes      = 200 // plain text quoted in notification mail
-	SiteNameRunes     = 100
-	AliasOrigins      = 5
-	BlockedWords      = 200
-	BlockedWordRunes  = 100
-	QueryKeys         = 5
-	ImportMaxBytes    = 50 << 20
-	EditWindow        = 24 * time.Hour
-	NewAccountAge     = 24 * time.Hour
-	TrustedAccountAge = 7 * 24 * time.Hour
-	TrustedComments   = 3
-	TrustedSites      = 2
-	ReportThreshold   = 3
-	RepliesInline     = 3
+	CommentMaxRunes  = 5000
+	LinksPerComment  = 5
+	DisplayNameRunes = 40
+	HomepageMaxRunes = 300
+	ReportNoteRunes  = 500
+	ThreadTitleRunes = 300
+	ThreadURLRunes   = 2000
+	PageKeyMaxRunes  = 200
+	ExcerptRunes     = 200 // plain text quoted in notification mail
+	SiteNameRunes    = 100
+	AliasOrigins     = 5
+	BlockedWords     = 200
+	BlockedWordRunes = 100
+	QueryKeys        = 5
+	ImportMaxBytes   = 50 << 20
+	// An import file may hold at most this many comments, and a site at
+	// most ImportedPerSite imported comments in all.
+	ImportMaxComments = 100_000
+	ImportedPerSite   = 200_000
+	// An account may have this many sites that are not deleted.
+	SitesPerAccount = 10
+	// A thread title in mail to other readers is cut to this length; the
+	// first commenter chose it (sites.md section 4).
+	MailTitleRunes = 80
+	// A page-published date further than this in the future is ignored.
+	PublishedFutureTolerance = 24 * time.Hour
+	EditWindow               = 24 * time.Hour
+	NewAccountAge            = 24 * time.Hour
+	TrustedAccountAge        = 7 * 24 * time.Hour
+	TrustedComments          = 3
+	TrustedSites             = 2
+	ReportThreshold          = 3
+	RepliesInline            = 3
 )
 
 // Rate limits (moderation.md section 3.4). Each is a count per window.
 var (
-	NewThreadsPerUser   = Rate{5, time.Hour}
-	NewThreadsPerGuest  = Rate{3, time.Hour}
-	MemberPostsPerSite  = Rate{3, time.Minute}
-	MemberPostsOverall  = Rate{20, 10 * time.Minute}
-	GuestPostsPerIP     = Rate{5, 10 * time.Minute}
-	ReportsPerUser      = Rate{30, 24 * time.Hour}
-	ClaimMailsPerUser   = Rate{3, time.Hour}
-	GuestConfirmsPerDay = Rate{1, 24 * time.Hour}
-	VerifyPerSite       = Rate{10, time.Hour}
-	LoginStartsPerIP    = Rate{10, time.Minute}
-	RedeemsPerIP        = Rate{120, time.Minute}
-	AnonymousReadsPerIP = Rate{300, time.Minute}
+	NewThreadsPerUser    = Rate{5, time.Hour}
+	NewThreadsPerGuest   = Rate{3, time.Hour}
+	MemberPostsPerSite   = Rate{3, time.Minute}
+	MemberPostsOverall   = Rate{20, 10 * time.Minute}
+	GuestPostsPerIP      = Rate{5, 10 * time.Minute}
+	ReportsPerUser       = Rate{30, 24 * time.Hour}
+	ClaimMailsPerUser    = Rate{3, time.Hour}
+	GuestConfirmsPerDay  = Rate{1, 24 * time.Hour}
+	VerifyPerSite        = Rate{10, time.Hour}
+	ImportUploadsPerSite = Rate{5, 24 * time.Hour}
+	SiteCreatesPerUser   = Rate{5, 24 * time.Hour}
+	LoginStartsPerIP     = Rate{10, time.Minute}
+	RedeemsPerIP         = Rate{120, time.Minute}
+	AnonymousReadsPerIP  = Rate{300, time.Minute}
 )
 
 // Rate is a fixed-window limit.
@@ -107,6 +120,10 @@ const (
 	ImportFilesKept             = 24 * time.Hour
 	IDPEventsKept               = 30 * 24 * time.Hour
 	DeletedSitesKept            = 30 * 24 * time.Hour
+	// Unverified origins, and sites that never verified one, go when their
+	// verification token would have expired.
+	UnverifiedOriginsKept   = VerificationTokenTTL
+	UnconfirmedConsentsKept = 30 * 24 * time.Hour
 )
 
 // Mail (moderation.md section 6).

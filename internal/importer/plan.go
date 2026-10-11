@@ -54,7 +54,7 @@ func MakePlan(r Result, m Mapping, site Site) (Plan, Summary) {
 	var order []Comment
 	for _, c := range r.Comments {
 		sum.ByStatus[c.Status]++
-		if c.Email != "" {
+		if c.HasEmail() {
 			sum.WithEmail++
 		}
 		if !c.CreatedAt.IsZero() {
@@ -133,7 +133,7 @@ func MakePlan(r Result, m Mapping, site Site) (Plan, Summary) {
 // AuthorKind is "guest" for a comment that can be claimed by its address,
 // else "external" (data-model.md section 3.4).
 func AuthorKind(c Comment) string {
-	if c.Email != "" {
+	if c.HasEmail() {
 		return "guest"
 	}
 	return "external"

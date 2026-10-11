@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode"
 
+	"golang.org/x/net/idna"
+
 	"github.com/kite-plus/comments/internal/policy"
 )
 
@@ -51,9 +53,21 @@ func Hosts(renderedHTML string) []string {
 	return out
 }
 
-// DomainListed reports whether host is a listed domain or below one.
+// NormalizeDomain is the form domains are listed and matched in: lower
+// case, punycode, no trailing dot, so an internationalized name cannot slip
+// past its listed punycode form or the other way round.
+func NormalizeDomain(d string) string {
+	d = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
+	if ascii, err := idna.Lookup.ToASCII(d); err == nil {
+		return ascii
+	}
+	return d
+}
+
+// DomainListed reports whether host is a listed domain or below one; the
+// list holds normalized domains.
 func DomainListed(host string, listed map[string]bool) bool {
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	host = NormalizeDomain(host)
 	for host != "" {
 		if listed[host] {
 			return true

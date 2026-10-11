@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -12,20 +14,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kite-plus/comments/internal/crypt"
 	"github.com/kite-plus/comments/internal/importer"
 	"github.com/kite-plus/comments/internal/markup"
 	"github.com/kite-plus/comments/internal/model"
+	"github.com/kite-plus/comments/internal/policy"
 	"github.com/kite-plus/comments/internal/store"
 )
 
-// importSite describes the site for import planning: every origin it has
-// registered counts as its own.
+// importSite describes the site for import planning: only its verified
+// origins count as its own.
 func importSite(site model.Site) importer.Site {
-	var origins []string
-	for _, o := range site.Origins {
-		origins = append(origins, o.Origin)
-	}
-	return importer.Site{Origins: origins, Primary: site.PrimaryOrigin(), QueryKeys: site.QueryKeys}
+	return importer.Site{Origins: site.VerifiedOrigins(), Primary: site.PrimaryOrigin(), QueryKeys: site.QueryKeys}
 }
 
 func importJSON(im store.Import) gin.H {
@@ -34,23 +34,20 @@ func importJSON(im store.Import) gin.H {
 		"created_at": im.CreatedAt.UTC(), "finished_at": timeOrNil(im.FinishedAt)}
 }
 
-// preview parses an import's file with a mapping and stores the summary.
-func (s *Server) previewImport(c *gin.Context, site model.Site, id int64, format string, m importer.Mapping) bool {
-	file, err := s.Store.ImportFile(c.Request.Context(), id)
+// previewImport plans an import's stored comments with a mapping and
+// stores the summary.
+func (s *Server) previewImport(c *gin.Context, site model.Site, id int64, m importer.Mapping) bool {
+	stored, err := s.Store.ImportFile(c.Request.Context(), id)
 	if err != nil {
 		s.storeError(c, err)
 		return false
 	}
-	mapping, _ := json.Marshal(m)
-	r, err := importer.Parse(format, file)
-	if err != nil {
-		if err := s.Store.SetImportPreview(c.Request.Context(), id, mapping, []byte("{}"), err.Error()); err != nil {
-			s.storeError(c, err)
-			return false
-		}
-		s.fail(c, http.StatusUnprocessableEntity, codeImportInvalid)
+	var r importer.Result
+	if err := json.Unmarshal(stored, &r); err != nil {
+		s.storeError(c, err)
 		return false
 	}
+	mapping, _ := json.Marshal(m)
 	_, sum := importer.MakePlan(r, m, importSite(site))
 	stats, _ := json.Marshal(gin.H{"preview": sum})
 	if err := s.Store.SetImportPreview(c.Request.Context(), id, mapping, stats, ""); err != nil {
@@ -60,12 +57,29 @@ func (s *Server) previewImport(c *gin.Context, site model.Site, id int64, format
 	return true
 }
 
+// importable reports whether a site may import: only approved or active
+// sites, so an unvetted account cannot fill the database.
+func importable(site model.Site) bool {
+	return site.Status == model.SiteActive || (site.ApprovedAt != nil && site.Status == model.SiteUnverified)
+}
+
 // uploadImport is POST /api/v1/sites/{site}/imports (multipart: format,
-// file). The response is the preview.
+// file). The file is parsed at once, streaming and up to the comment cap;
+// what is stored is the parsed comments with guest addresses encrypted,
+// never the file (sites.md section 7). The response is the preview.
 func (s *Server) uploadImport(c *gin.Context) {
+	site := currentSite(c)
+	if !importable(site) {
+		s.fail(c, http.StatusForbidden, codeSiteInactive)
+		return
+	}
 	format := c.PostForm("format")
 	if !slices.Contains(importer.Formats, format) {
 		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	if ok, retry := s.uploads.allow(site.PublicID); !ok {
+		s.tooMany(c, retry)
 		return
 	}
 	file, ok := readUpload(c)
@@ -73,13 +87,33 @@ func (s *Server) uploadImport(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, codeImportInvalid)
 		return
 	}
-	site := currentSite(c)
-	id, err := s.Store.CreateImport(c.Request.Context(), site.ID, format, file, currentUser(c).ID)
+	r, err := importer.Parse(format, file)
+	if err != nil {
+		s.fail(c, http.StatusUnprocessableEntity, codeImportInvalid, importDetail(c, err))
+		return
+	}
+	n, err := s.Store.ImportedCount(c.Request.Context(), site.ID)
 	if err != nil {
 		s.storeError(c, err)
 		return
 	}
-	if !s.previewImport(c, site, id, format, importer.Mapping{}) {
+	if n+len(r.Comments) > policy.ImportedPerSite {
+		s.fail(c, http.StatusUnprocessableEntity, codeImportInvalid, t(c, "站点的导入评论超出配额。", "The site would exceed its quota of imported comments."))
+		return
+	}
+	for i := range r.Comments {
+		if e := r.Comments[i].Email; e != "" {
+			r.Comments[i].EmailEnc, r.Comments[i].EmailHMAC = s.Keys.Encrypt(crypt.NormalizeEmail(e)), s.Keys.EmailHMAC(e)
+			r.Comments[i].Email = ""
+		}
+	}
+	parsed, _ := json.Marshal(r)
+	id, err := s.Store.CreateImport(c.Request.Context(), site.ID, format, parsed, currentUser(c).ID)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	if !s.previewImport(c, site, id, importer.Mapping{}) {
 		return
 	}
 	im, err := s.Store.Import(c.Request.Context(), site.ID, id)
@@ -88,6 +122,14 @@ func (s *Server) uploadImport(c *gin.Context) {
 		return
 	}
 	private(c, http.StatusCreated, importJSON(im))
+}
+
+func importDetail(c *gin.Context, err error) string {
+	if errors.Is(err, importer.ErrTooMany) {
+		return t(c, fmt.Sprintf("一次最多导入 %d 条评论。", policy.ImportMaxComments),
+			fmt.Sprintf("An import holds at most %d comments.", policy.ImportMaxComments))
+	}
+	return ""
 }
 
 func (s *Server) currentImport(c *gin.Context) (store.Import, bool) {
@@ -138,7 +180,7 @@ func (s *Server) setImportMapping(c *gin.Context) {
 		s.fail(c, http.StatusConflict, codeConflict)
 		return
 	}
-	if !s.previewImport(c, currentSite(c), im.ID, im.Format, m) {
+	if !s.previewImport(c, currentSite(c), im.ID, m) {
 		return
 	}
 	im, _ = s.Store.Import(c.Request.Context(), im.SiteID, im.ID)

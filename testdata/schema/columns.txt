@@ -9,9 +9,10 @@ bans.email_hmac bytea
 bans.expires_at timestamp with time zone
 bans.id bigint
 bans.ip_hmac bytea
+bans.issuer text
 bans.reason text
 bans.site_id bigint
-bans.user_id bigint
+bans.subject text
 comment_revisions.body_md text
 comment_revisions.comment_id bigint
 comment_revisions.revised_at timestamp with time zone
@@ -46,6 +47,7 @@ console_sessions.idp_sid text
 console_sessions.token_hash bytea
 console_sessions.user_id bigint
 email_claims.claimed_count integer
+email_claims.confirmed_at timestamp with time zone
 email_claims.created_at timestamp with time zone
 email_claims.email_hmac bytea
 email_claims.expires_at timestamp with time zone
@@ -53,8 +55,14 @@ email_claims.id bigint
 email_claims.token_hash bytea
 email_claims.user_id bigint
 email_claims.verified_at timestamp with time zone
+guest_consents.browser_hash bytea
+guest_consents.comment_id bigint
+guest_consents.confirm_token_hash bytea
+guest_consents.confirmed_at timestamp with time zone
+guest_consents.created_at timestamp with time zone
+guest_consents.email_hmac bytea
+guest_consents.id bigint
 guest_emails.confirm_sent_at timestamp with time zone
-guest_emails.confirm_token_hash bytea
 guest_emails.confirmed_at timestamp with time zone
 guest_emails.created_at timestamp with time zone
 guest_emails.email_enc bytea
@@ -185,6 +193,7 @@ sites.query_keys ARRAY
 sites.sort_order text
 sites.status text
 sites.status_note text
+sites.suspended_at timestamp with time zone
 sites.updated_at timestamp with time zone
 sites.verified_at timestamp with time zone
 spam_domains.created_at timestamp with time zone
@@ -215,6 +224,7 @@ users.email_enc bytea
 users.email_hmac bytea
 users.homepage_url text
 users.id bigint
+users.idp_suspended_at timestamp with time zone
 users.is_platform_admin boolean
 users.last_login_at timestamp with time zone
 users.locale text

@@ -77,11 +77,11 @@ func TestWidgetLoginTransaction(t *testing.T) {
 	if _, err := s.RedeemWidgetLogin(ctx, site.ID, hash("c1"), SiteSessionIn{TokenHash: hash("tok2"), ExpiresAt: time.Now().Add(time.Hour)}); !errors.Is(err, ErrLoginGone) {
 		t.Errorf("second redeem: %v", err)
 	}
-	got, err := s.SiteViewer(ctx, hash("tok"), site.ID)
+	got, _, err := s.SiteViewer(ctx, hash("tok"), site.ID)
 	if err != nil || got.AuthorID != v.AuthorID {
 		t.Fatalf("viewer = %+v, %v", got, err)
 	}
-	if _, err := s.SiteViewer(ctx, hash("tok"), other.ID); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.SiteViewer(ctx, hash("tok"), other.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("session used on another site: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestWidgetLoginTransaction(t *testing.T) {
 	if n, err := s.DeleteSessionsBySID(ctx, "sid-1"); err != nil || n != 1 {
 		t.Errorf("logout by sid = %d, %v", n, err)
 	}
-	if _, err := s.SiteViewer(ctx, hash("tok"), site.ID); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.SiteViewer(ctx, hash("tok"), site.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("session survived logout: %v", err)
 	}
 }
@@ -310,11 +310,22 @@ func TestSiteLifecycle(t *testing.T) {
 	if err != nil || site.Status != model.SiteUnverified || len(site.Origins) != 2 || site.PrimaryOrigin() != "https://a.example" {
 		t.Fatalf("site = %+v, %v", site, err)
 	}
-	if _, err := s.CreateSite(ctx, NewSite{Name: "B", Origins: []string{"https://a.example"}, CreatedBy: &owner.ID}); !errors.Is(err, ErrConflict) {
-		t.Errorf("origin taken twice: %v", err)
+	// An unverified claim blocks nobody; the first to verify holds the origin.
+	squat, err := s.CreateSite(ctx, NewSite{Name: "B", Origins: []string{"https://www.a.example"}, CreatedBy: &owner.ID})
+	if err != nil {
+		t.Fatalf("unverified origin blocked a second site: %v", err)
 	}
 	if err := s.MarkOriginVerified(ctx, site.ID, "https://www.a.example", hash("t")); err != nil {
 		t.Fatal(err)
+	}
+	if err := s.MarkOriginVerified(ctx, squat.ID, "https://www.a.example", hash("u")); !errors.Is(err, ErrConflict) {
+		t.Errorf("origin verified twice: %v", err)
+	}
+	if _, err := s.CreateSite(ctx, NewSite{Name: "C", Origins: []string{"https://www.a.example"}, CreatedBy: &owner.ID}); !errors.Is(err, ErrConflict) {
+		t.Errorf("site created on a verified origin: %v", err)
+	}
+	if err := s.AddOrigin(ctx, squat.ID, "https://www.a.example"); !errors.Is(err, ErrConflict) {
+		t.Errorf("verified origin added again: %v", err)
 	}
 	if x, _ := s.SiteByID(ctx, site.ID); x.Status != model.SitePendingReview || !x.HasVerifiedOrigin("https://www.a.example") {
 		t.Errorf("after verification = %+v", x)

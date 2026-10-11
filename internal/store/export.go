@@ -61,7 +61,8 @@ func (s *Store) ExportSite(ctx context.Context, siteID int64) ([]ExportThread, [
 		CASE WHEN c.author_kind = 'user' THEN u.display_name ELSE coalesce(c.author_name, '') END,
 		CASE WHEN c.author_kind = 'user' THEN coalesce(u.homepage_url, '') ELSE coalesce(c.author_url, '') END,
 		coalesce(c.author_ref, ''), CASE WHEN c.author_kind = 'guest' THEN c.author_email_enc END, c.notify_email,
-		c.body_md, c.status, c.pinned_at IS NOT NULL, c.source, coalesce(c.source_id, ''), c.created_at, c.edited_at, c.published_at
+		CASE WHEN c.status = 'deleted' THEN '' ELSE c.body_md END,
+		c.status, c.pinned_at IS NOT NULL, c.source, coalesce(c.source_id, ''), c.created_at, c.edited_at, c.published_at
 		FROM comments c LEFT JOIN users u ON u.id = c.author_user_id
 		LEFT JOIN site_authors sa ON sa.site_id = c.site_id AND sa.user_id = c.author_user_id
 		WHERE c.site_id = $1 ORDER BY c.id`, siteID)

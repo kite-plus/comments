@@ -136,9 +136,14 @@ func TestSiteRegistrationAndVerification(t *testing.T) {
 	if site["status"] != "unverified" || site["guest_policy"] != "review" || site["role"] != "owner" {
 		t.Errorf("new site = %v", site)
 	}
-	if w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Again", "origin": blog.URL, "guest_policy": "off"}, headers: h, cookies: c}); w.Code != http.StatusConflict {
-		t.Errorf("origin taken twice = %d", w.Code)
+	// Another account may claim the origin until one of them verifies it.
+	session2, csrf2 := e.consoleLogin("squatter")
+	h2, c2 := csrf(csrf2, session2)
+	w = e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Again", "origin": blog.URL, "guest_policy": "off"}, headers: h2, cookies: c2})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("unverified origin blocked a second site = %d %s", w.Code, w.Body)
 	}
+	squat := decode(t, w)["id"].(string)
 	w = e.do(req{method: "POST", path: "/api/v1/sites/" + id + "/verification/check", headers: h, cookies: c})
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("check without a token = %d %s", w.Code, w.Body)
@@ -152,6 +157,16 @@ func TestSiteRegistrationAndVerification(t *testing.T) {
 	got := decode(t, w)
 	if got["results"].([]any)[0].(map[string]any)["method"] != "meta" || got["site"].(map[string]any)["status"] != "pending_review" {
 		t.Errorf("after check = %v", got)
+	}
+	// The squatter serves the same page but the origin is taken.
+	w = e.do(req{method: "POST", path: "/api/v1/sites/" + squat + "/verification", headers: h2, cookies: c2})
+	token = decode(t, w)["token"].(string)
+	w = e.do(req{method: "POST", path: "/api/v1/sites/" + squat + "/verification/check", headers: h2, cookies: c2})
+	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "已被另一个站点验证") {
+		t.Errorf("second verification of an origin = %d %s", w.Code, w.Body)
+	}
+	if w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Third", "origin": blog.URL, "guest_policy": "off"}, headers: h2, cookies: c2}); w.Code != http.StatusConflict {
+		t.Errorf("site on a verified origin = %d", w.Code)
 	}
 	// The platform approves; only a platform admin may.
 	if w := e.do(req{method: "POST", path: "/api/v1/admin/sites/" + id + "/approve", headers: h, cookies: c}); w.Code != http.StatusForbidden {
@@ -420,22 +435,36 @@ func TestEmailsNeverStoredInPlainText(t *testing.T) {
 	token, _ := e.popupLogin("ann", e.site)
 	e.post(token, e.site, "hello", nil)
 	_, _ = e.st.UpdateSite(t.Context(), e.site.ID, store.SiteSettings{GuestPolicy: new(model.GuestPublish)})
-	e.consoleLogin("bob")
-	rows, err := e.db.Query(context.Background(), `SELECT table_name, column_name FROM information_schema.columns
-		WHERE table_schema = current_schema() AND data_type IN ('text', 'jsonb', 'ARRAY')`)
+	session, csrfToken := e.consoleLogin("bob")
+	// An import keeps its parsed comments for a day; their addresses too
+	// must be encrypted.
+	bob, _ := e.st.UserBySubject(t.Context(), e.idp.Issuer, "bob")
+	if err := e.st.AddMember(t.Context(), e.site.ID, bob.ID, model.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	h, c := csrf(csrfToken, session)
+	body, ct := multipartImport(t, "waline", walineExport)
+	if w := e.do(req{method: "POST", path: "/api/v1/sites/" + e.site.PublicID + "/imports", body: body, headers: with(h, "Content-Type", ct), cookies: c}); w.Code != http.StatusCreated {
+		t.Fatalf("import = %d %s", w.Code, w.Body)
+	}
+	rows, err := e.db.Query(context.Background(), `SELECT table_name, column_name, data_type FROM information_schema.columns
+		WHERE table_schema = current_schema() AND data_type IN ('text', 'jsonb', 'ARRAY', 'bytea')`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cols [][2]string
+	var cols [][3]string
 	for rows.Next() {
-		var tbl, col string
-		_ = rows.Scan(&tbl, &col)
-		cols = append(cols, [2]string{tbl, col})
+		var tbl, col, typ string
+		_ = rows.Scan(&tbl, &col, &typ)
+		cols = append(cols, [3]string{tbl, col, typ})
 	}
 	rows.Close()
 	for _, c := range cols {
 		var n int
 		q := fmt.Sprintf(`SELECT count(*) FROM %s WHERE %s::text ILIKE '%%@example.com%%'`, c[0], c[1])
+		if c[2] == "bytea" {
+			q = fmt.Sprintf(`SELECT count(*) FROM %s WHERE position('@example.com'::bytea IN %s) > 0`, c[0], c[1])
+		}
 		if err := e.db.QueryRow(context.Background(), q).Scan(&n); err != nil {
 			t.Fatal(err)
 		}

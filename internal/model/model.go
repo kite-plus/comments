@@ -136,13 +136,17 @@ type User struct {
 	NotifyReplies   bool
 	OnAccountDelete string
 	IsPlatformAdmin bool
-	SuspendedAt     *time.Time
+	SuspendedAt     *time.Time // by the platform
 	SuspendReason   string
+	IDPSuspendedAt  *time.Time // by the identity service: the account is deactivated
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastLoginAt     *time.Time
 	HasAvatar       bool
 }
+
+// Suspended reports a suspension by the platform or the identity service.
+func (u User) Suspended() bool { return u.SuspendedAt != nil || u.IDPSuspendedAt != nil }
 
 // Thread is one discussion page.
 type Thread struct {

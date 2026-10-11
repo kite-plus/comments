@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -104,6 +105,31 @@ func TestHTMLToMarkdown(t *testing.T) {
 	for in, want := range cases {
 		if got := HTMLToMarkdown(in); got != want {
 			t.Errorf("HTMLToMarkdown(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A file is read as a stream and stops at the comment cap, whatever its
+// format, so one upload cannot exhaust memory.
+func TestCommentCap(t *testing.T) {
+	waline := `{"type":"waline","version":1,"data":{"Comment":[` +
+		strings.Repeat(`{"objectId":"1","comment":"x","insertedAt":"2023-05-01T10:00:00.000Z","nick":"A","url":"/a"},`, 2) +
+		`{"objectId":"3","comment":"x","insertedAt":"2023-05-01T10:00:00.000Z","nick":"A","url":"/a"}]}}`
+	twikoo := strings.Repeat(`{"_id":"a","nick":"N","url":"/p","comment":"x","created":1680000000000}`+"\n", 3)
+	artrans := `[` + strings.Repeat(`{"id":"5","content":"x","date":"2022-01-02 03:04:05","nick":"A","page_key":"/p"},`, 2) +
+		`{"id":"6","content":"x","date":"2022-01-02 03:04:05","nick":"A","page_key":"/p"}]`
+	own := `{"format":"kite-comments","version":1,"threads":[{"id":"t","key":"p:/a"}],"comments":[` +
+		strings.Repeat(`{"id":"c","thread_id":"t","author":{"kind":"guest","name":"A"},"body_md":"x","status":"published","created_at":"2023-05-01T10:00:00Z"},`, 2) +
+		`{"id":"d","thread_id":"t","author":{"kind":"guest","name":"A"},"body_md":"x","status":"published","created_at":"2023-05-01T10:00:00Z"}]}`
+	wxr := `<?xml version="1.0"?><rss xmlns:wp="http://wordpress.org/export/1.2/"><channel><item><link>https://wp.example/?p=1</link><wp:post_id>1</wp:post_id>` +
+		strings.Repeat(`<wp:comment><wp:comment_id>3</wp:comment_id><wp:comment_author>A</wp:comment_author><wp:comment_date_gmt>2020-01-01 00:00:00</wp:comment_date_gmt><wp:comment_content>x</wp:comment_content><wp:comment_approved>1</wp:comment_approved></wp:comment>`, 3) +
+		`</item></channel></rss>`
+	for format, data := range map[string]string{FormatWaline: waline, FormatTwikoo: twikoo, FormatArtrans: artrans, FormatJSON: own, FormatWXR: wxr} {
+		if r, err := ParseLimit(format, []byte(data), 3); err != nil || len(r.Comments) != 3 {
+			t.Errorf("%s at the cap = %d comments, %v", format, len(r.Comments), err)
+		}
+		if _, err := ParseLimit(format, []byte(data), 2); !errors.Is(err, ErrTooMany) {
+			t.Errorf("%s over the cap: %v", format, err)
 		}
 	}
 }

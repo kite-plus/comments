@@ -410,7 +410,7 @@ func publishEffects(ctx context.Context, q querier, commentID int64) error {
 		JOIN comments p ON p.id = c.parent_id
 		JOIN users pu ON pu.id = p.author_user_id
 		WHERE c.id = $1 AND p.author_kind = 'user' AND p.author_user_id IS DISTINCT FROM c.author_user_id
-		AND pu.suspended_at IS NULL
+		AND pu.suspended_at IS NULL AND pu.idp_suspended_at IS NULL
 		AND NOT EXISTS (SELECT 1 FROM thread_mutes tm WHERE tm.user_id = p.author_user_id AND tm.thread_id = c.thread_id)`,
 		commentID); err != nil {
 		return err
@@ -422,7 +422,7 @@ func publishEffects(ctx context.Context, q querier, commentID int64) error {
 		JOIN comments p ON p.id = c.parent_id
 		JOIN users pu ON pu.id = p.author_user_id
 		WHERE c.id = $1 AND p.author_kind = 'user' AND p.author_user_id IS DISTINCT FROM c.author_user_id
-		AND pu.suspended_at IS NULL AND pu.notify_replies AND pu.email_enc IS NOT NULL
+		AND pu.suspended_at IS NULL AND pu.idp_suspended_at IS NULL AND pu.notify_replies AND pu.email_enc IS NOT NULL
 		AND NOT EXISTS (SELECT 1 FROM thread_mutes tm WHERE tm.user_id = p.author_user_id AND tm.thread_id = c.thread_id)`,
 		commentID); err != nil {
 		return err
@@ -672,9 +672,11 @@ func (s *Store) SitesWithBody(ctx context.Context, siteID int64, body string) (i
 // or across the platform.
 func (s *Store) Banned(ctx context.Context, siteID int64, userID *int64, emailHMAC []byte, ipHMACs [][]byte) (bool, error) {
 	var banned bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bans WHERE (site_id = $1 OR site_id IS NULL)
-		AND (expires_at IS NULL OR expires_at > now())
-		AND (($2::bigint IS NOT NULL AND user_id = $2) OR ($3::bytea IS NOT NULL AND email_hmac = $3) OR ip_hmac = ANY($4)))`,
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bans b WHERE (b.site_id = $1 OR b.site_id IS NULL)
+		AND (b.expires_at IS NULL OR b.expires_at > now())
+		AND (($2::bigint IS NOT NULL AND b.subject IS NOT NULL AND EXISTS (SELECT 1 FROM user_identities ui
+				WHERE ui.user_id = $2 AND ui.issuer = b.issuer AND ui.subject = b.subject))
+			OR ($3::bytea IS NOT NULL AND b.email_hmac = $3) OR b.ip_hmac = ANY($4)))`,
 		siteID, userID, emailHMAC, ipHMACs).Scan(&banned)
 	return banned, err
 }
@@ -696,13 +698,14 @@ func trustedCond(uid string, base int) string {
 	age, count, sites := fmt.Sprintf("$%d", base), fmt.Sprintf("$%d", base+1), fmt.Sprintf("$%d", base+2)
 	theirs := `FROM comments tc WHERE tc.author_user_id = ` + uid + ` AND tc.status = 'published'
 		AND NOT EXISTS (SELECT 1 FROM site_members tm WHERE tm.site_id = tc.site_id AND tm.user_id = ` + uid + `)`
-	return `(EXISTS (SELECT 1 FROM users tu WHERE tu.id = ` + uid + ` AND tu.suspended_at IS NULL
+	return `(EXISTS (SELECT 1 FROM users tu WHERE tu.id = ` + uid + ` AND tu.suspended_at IS NULL AND tu.idp_suspended_at IS NULL
 			AND tu.created_at <= now() - ` + age + ` * interval '1 second')
 		AND (SELECT count(*) ` + theirs + `) >= ` + count + `
 		AND (SELECT count(DISTINCT tc.site_id) ` + theirs + `) >= ` + sites + `
 		AND NOT EXISTS (SELECT 1 FROM moderation_events te JOIN comments tx ON tx.id = te.comment_id
 			WHERE tx.author_user_id = ` + uid + ` AND te.action IN ('hide', 'spam', 'platform_hide'))
-		AND NOT EXISTS (SELECT 1 FROM bans tb WHERE tb.user_id = ` + uid + `))`
+		AND NOT EXISTS (SELECT 1 FROM bans tb JOIN user_identities ti ON ti.issuer = tb.issuer AND ti.subject = tb.subject
+			WHERE ti.user_id = ` + uid + `))`
 }
 
 // SpamDomains returns the platform's spam domain list.

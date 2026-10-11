@@ -142,13 +142,16 @@ func (s *Store) ReportSite(ctx context.Context, reportID int64) (siteID, comment
 	return siteID, commentID, notFound(err)
 }
 
-// Ban is a bans row.
+// Ban is a bans row. A reader is banned by identity (issuer, subject), so
+// the ban outlives the account row and meets the reader again after they
+// delete their data and sign in anew (data-model.md section 3.5).
 type Ban struct {
 	ID        int64
 	SiteID    *int64
-	UserID    *int64
-	AuthorID  string // the banned reader's site author ID
-	Name      string // the banned reader's display name
+	Issuer    string
+	Subject   string
+	AuthorID  string // the banned reader's site author ID, while the account exists
+	Name      string // the banned reader's display name, while the account exists
 	EmailHMAC []byte
 	IPHMAC    []byte
 	Reason    string
@@ -160,8 +163,9 @@ type Ban struct {
 func (s *Store) CreateBan(ctx context.Context, b Ban, by int64) (int64, error) {
 	var id int64
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `INSERT INTO bans (site_id, user_id, email_hmac, ip_hmac, reason, created_by, expires_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`, b.SiteID, b.UserID, b.EmailHMAC, b.IPHMAC, b.Reason, by, b.ExpiresAt).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO bans (site_id, issuer, subject, email_hmac, ip_hmac, reason, created_by, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, b.SiteID, nullString(b.Issuer), nullString(b.Subject),
+			b.EmailHMAC, b.IPHMAC, b.Reason, by, b.ExpiresAt).Scan(&id); err != nil {
 			return err
 		}
 		site := int64(0)
@@ -170,9 +174,6 @@ func (s *Store) CreateBan(ctx context.Context, b Ban, by int64) (int64, error) {
 			site, action = *b.SiteID, "ban"
 		}
 		detail := map[string]any{"ban_id": id}
-		if b.UserID != nil {
-			detail["user_id"] = *b.UserID
-		}
 		if b.ExpiresAt != nil {
 			detail["expires_at"] = b.ExpiresAt.UTC()
 		}
@@ -183,10 +184,12 @@ func (s *Store) CreateBan(ctx context.Context, b Ban, by int64) (int64, error) {
 
 // Bans lists the live bans of a site, or platform bans when siteID is 0.
 func (s *Store) Bans(ctx context.Context, siteID int64) ([]Ban, error) {
-	rows, err := s.pool.Query(ctx, `SELECT b.id, b.site_id, b.user_id, coalesce(sa.public_id::text, ''), coalesce(u.display_name, ''),
+	rows, err := s.pool.Query(ctx, `SELECT b.id, b.site_id, coalesce(b.issuer, ''), coalesce(b.subject, ''),
+		coalesce(sa.public_id::text, ''), coalesce(u.display_name, ''),
 		b.email_hmac, b.ip_hmac, b.reason, b.created_at, b.expires_at
-		FROM bans b LEFT JOIN users u ON u.id = b.user_id
-		LEFT JOIN site_authors sa ON sa.user_id = b.user_id AND sa.site_id = b.site_id
+		FROM bans b LEFT JOIN user_identities ui ON ui.issuer = b.issuer AND ui.subject = b.subject
+		LEFT JOIN users u ON u.id = ui.user_id
+		LEFT JOIN site_authors sa ON sa.user_id = u.id AND sa.site_id = b.site_id
 		WHERE (($1 <> 0 AND b.site_id = $1) OR ($1 = 0 AND b.site_id IS NULL))
 		AND (b.expires_at IS NULL OR b.expires_at > now()) ORDER BY b.created_at DESC`, siteID)
 	if err != nil {
@@ -194,7 +197,7 @@ func (s *Store) Bans(ctx context.Context, siteID int64) ([]Ban, error) {
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Ban, error) {
 		var b Ban
-		err := r.Scan(&b.ID, &b.SiteID, &b.UserID, &b.AuthorID, &b.Name, &b.EmailHMAC, &b.IPHMAC, &b.Reason, &b.CreatedAt, &b.ExpiresAt)
+		err := r.Scan(&b.ID, &b.SiteID, &b.Issuer, &b.Subject, &b.AuthorID, &b.Name, &b.EmailHMAC, &b.IPHMAC, &b.Reason, &b.CreatedAt, &b.ExpiresAt)
 		return b, err
 	})
 }
@@ -376,4 +379,11 @@ func (s *Store) ReportReason(ctx context.Context, reportID int64) (string, error
 	var r string
 	err := s.pool.QueryRow(ctx, `SELECT reason FROM reports WHERE id = $1`, reportID).Scan(&r)
 	return r, notFound(err)
+}
+
+// Identity returns the (issuer, subject) of an account.
+func (s *Store) Identity(ctx context.Context, userID int64) (issuer, subject string, err error) {
+	err = s.pool.QueryRow(ctx, `SELECT issuer, subject FROM user_identities WHERE user_id = $1 ORDER BY linked_at LIMIT 1`,
+		userID).Scan(&issuer, &subject)
+	return issuer, subject, notFound(err)
 }

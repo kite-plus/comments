@@ -149,6 +149,12 @@ func (s *Server) widgetFile(c *gin.Context) {
 
 func (s *Server) consoleFile(c *gin.Context) {
 	name := strings.TrimPrefix(c.Param("file"), "/")
+	// Pages go out only through consoleIndex, with its CSP and
+	// frame-ancestors.
+	if strings.HasSuffix(name, ".html") || strings.HasSuffix(name, "/") {
+		c.Status(http.StatusNotFound)
+		return
+	}
 	cache := "public, max-age=300"
 	if strings.HasPrefix(name, "assets/") {
 		cache = "public, max-age=31536000, immutable"

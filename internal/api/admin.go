@@ -10,6 +10,7 @@ import (
 
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/policy"
+	"github.com/kite-plus/comments/internal/spam"
 	"github.com/kite-plus/comments/internal/store"
 )
 
@@ -174,7 +175,7 @@ func (s *Server) adminUnsuspendUser(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := s.Store.UnsuspendUser(c.Request.Context(), u.ID, ""); err != nil {
+	if err := s.Store.UnsuspendUser(c.Request.Context(), u.ID); err != nil {
 		s.storeError(c, err)
 		return
 	}
@@ -210,7 +211,9 @@ func (s *Server) adminCreateBan(c *gin.Context) {
 	if in.Kind == "user" && in.UserID != "" && in.CommentID == "" {
 		if b, ok = s.banBase(in.banInput); ok {
 			u, err := s.Store.UserByPublicID(c.Request.Context(), in.UserID)
-			b.UserID, ok = &u.ID, err == nil
+			if ok = err == nil; ok {
+				b, ok = s.banIdentity(c, b, u.ID)
+			}
 		}
 	} else {
 		b, ok = s.buildBan(c, 0, in.banInput)
@@ -261,7 +264,7 @@ func (s *Server) adminAddSpamDomain(c *gin.Context) {
 	if !s.bindJSON(c, &in) {
 		return
 	}
-	d := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(in.Domain)), ".")
+	d := spam.NormalizeDomain(in.Domain)
 	if d == "" || len(d) > 253 || strings.ContainsAny(d, "/:@ ") || !strings.Contains(d, ".") {
 		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
 		return
@@ -278,7 +281,7 @@ func (s *Server) adminAddSpamDomain(c *gin.Context) {
 
 // adminRemoveSpamDomain is DELETE /api/v1/admin/spam-domains/{domain}.
 func (s *Server) adminRemoveSpamDomain(c *gin.Context) {
-	if err := s.Store.RemoveSpamDomain(c.Request.Context(), strings.ToLower(c.Param("domain"))); err != nil {
+	if err := s.Store.RemoveSpamDomain(c.Request.Context(), spam.NormalizeDomain(c.Param("domain"))); err != nil {
 		s.storeError(c, err)
 		return
 	}

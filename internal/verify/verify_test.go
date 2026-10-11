@@ -72,3 +72,16 @@ func TestCheckMethods(t *testing.T) {
 		t.Error("redirect to another host followed")
 	}
 }
+
+// An owner sees why a check failed, never the address a name resolved to.
+func TestCheckNamesNoResolvedAddress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer srv.Close()
+	f := NewFetcher(false)
+	f.LookupTXT = func(context.Context, string) ([]string, error) { return nil, errors.New("nxdomain") }
+	origin := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	r := f.Check(context.Background(), origin, func(string) bool { return true })
+	if r.OK || strings.Contains(r.Detail, "127.0.0.1") || strings.Contains(r.Detail, "::1") || !strings.Contains(r.Detail, "public address") {
+		t.Errorf("detail = %q", r.Detail)
+	}
+}

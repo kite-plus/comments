@@ -117,21 +117,39 @@ func TestApplyTreatsPushesAsHints(t *testing.T) {
 	if _, err := push(UserRemoved); err != nil {
 		t.Fatal(err)
 	}
-	if user().SuspendedAt != nil {
+	if user().Suspended() {
 		t.Fatal("an active user was touched")
 	}
 	// Locking never suspends.
 	f.set(func(f *fakeIDP) { f.state = "USER_STATE_LOCKED" })
-	if _, err := push(UserLocked); err != nil || user().SuspendedAt != nil {
+	if _, err := push(UserLocked); err != nil || user().Suspended() {
 		t.Fatalf("lock suspended: %v", err)
 	}
 	f.set(func(f *fakeIDP) { f.state = "USER_STATE_INACTIVE" })
-	if _, err := push(UserDeactivated); err != nil || user().SuspendedAt == nil {
+	if _, err := push(UserDeactivated); err != nil || user().IDPSuspendedAt == nil || user().SuspendedAt != nil {
 		t.Fatalf("deactivation did not suspend: %v", err)
 	}
 	f.set(func(f *fakeIDP) { f.state = "USER_STATE_ACTIVE" })
-	if _, err := push(UserReactivated); err != nil || user().SuspendedAt != nil {
+	if _, err := push(UserReactivated); err != nil || user().Suspended() {
 		t.Fatalf("reactivation did not resume: %v", err)
+	}
+	// Reactivation lifts only the identity service's own suspension.
+	if err := st.SuspendUser(ctx, u.ID, "spam"); err != nil {
+		t.Fatal(err)
+	}
+	f.set(func(f *fakeIDP) { f.state = "USER_STATE_INACTIVE" })
+	if _, err := push(UserDeactivated); err != nil {
+		t.Fatal(err)
+	}
+	f.set(func(f *fakeIDP) { f.state = "USER_STATE_ACTIVE" })
+	if _, err := push(UserReactivated); err != nil {
+		t.Fatal(err)
+	}
+	if x := user(); x.IDPSuspendedAt != nil || x.SuspendedAt == nil || x.SuspendReason != "spam" {
+		t.Fatalf("reactivation lifted the platform suspension: %+v", x)
+	}
+	if err := st.UnsuspendUser(ctx, u.ID); err != nil {
+		t.Fatal(err)
 	}
 	// Unreadable identity service: nothing happens, the event is not
 	// recorded, and the caller can answer 503.
@@ -157,5 +175,41 @@ func TestApplyTreatsPushesAsHints(t *testing.T) {
 	}
 	if _, err := st.User(ctx, u.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("confirmed removal kept the user: %v", err)
+	}
+}
+
+// A signed push names an event ID of its choosing; it must not mark that
+// ID as handled, or a forged push could hide the real event from the
+// search.
+func TestPushesNeverClaimEventIDs(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	f := &fakeIDP{state: "USER_STATE_ACTIVE"}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, Token: "t"}
+	u, _, err := st.LoginUser(ctx, store.OIDCLogin{Issuer: "iss", Subject: "sub", DisplayName: "U", Locale: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(ctx, st, c, "iss", Event{ID: "sub:9", Type: UserDeactivated, Subject: "sub"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen, _ := st.IDPEventSeen(ctx, "sub:9"); seen {
+		t.Fatal("a push recorded its event ID")
+	}
+	f.set(func(f *fakeIDP) { f.state = "USER_STATE_INACTIVE" })
+	applied, err := Apply(ctx, st, c, "iss", Event{ID: "sub:9", Type: UserDeactivated, Subject: "sub", FromSearch: true})
+	if err != nil || !applied {
+		t.Fatalf("the searched event was skipped: %v %v", applied, err)
+	}
+	if x, _ := st.User(ctx, u.ID); x.IDPSuspendedAt == nil {
+		t.Error("the searched deactivation did not apply")
+	}
+	if seen, _ := st.IDPEventSeen(ctx, "sub:9"); !seen {
+		t.Error("the searched event was not recorded")
+	}
+	if applied, err := Apply(ctx, st, c, "iss", Event{ID: "sub:9", Type: UserDeactivated, Subject: "sub", FromSearch: true}); err != nil || applied {
+		t.Errorf("a searched event applied twice: %v %v", applied, err)
 	}
 }

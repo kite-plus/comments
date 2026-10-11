@@ -137,7 +137,7 @@ func (s *Store) OwnersDue(ctx context.Context, mode string) ([]OwnerDue, error) 
 	rows, err := s.pool.Query(ctx, `SELECT m.site_id, m.user_id, u.locale, u.email_enc, coalesce(m.last_notified_at, m.created_at)
 		FROM site_members m JOIN sites st ON st.id = m.site_id JOIN users u ON u.id = m.user_id
 		WHERE m.role = 'owner' AND st.owner_notify = $1 AND st.status = 'active'
-		AND u.email_enc IS NOT NULL AND u.suspended_at IS NULL
+		AND u.email_enc IS NOT NULL AND u.suspended_at IS NULL AND u.idp_suspended_at IS NULL
 		AND (m.last_notified_at IS NULL OR m.last_notified_at <= now() - $2 * interval '1 second')
 		AND EXISTS (SELECT 1 FROM comments c WHERE c.site_id = m.site_id AND c.status IN ('published', 'pending')
 			AND c.created_at > coalesce(m.last_notified_at, m.created_at) AND c.author_user_id IS DISTINCT FROM m.user_id)`,
@@ -180,7 +180,7 @@ func (s *Store) QueueOwnerMail(ctx context.Context, o OwnerDue, kind string) (in
 // OwnerContacts lists the owners of a site who can get mail.
 func (s *Store) OwnerContacts(ctx context.Context, siteID int64) ([]OwnerDue, error) {
 	rows, err := s.pool.Query(ctx, `SELECT m.site_id, m.user_id, u.locale, u.email_enc, now() FROM site_members m JOIN users u ON u.id = m.user_id
-		WHERE m.site_id = $1 AND m.role = 'owner' AND u.email_enc IS NOT NULL AND u.suspended_at IS NULL`, siteID)
+		WHERE m.site_id = $1 AND m.role = 'owner' AND u.email_enc IS NOT NULL AND u.suspended_at IS NULL AND u.idp_suspended_at IS NULL`, siteID)
 	if err != nil {
 		return nil, err
 	}

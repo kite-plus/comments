@@ -14,13 +14,13 @@ import (
 const userColumns = `u.id, u.public_id::text, u.display_name, u.avatar_kind, coalesce(u.homepage_url, ''), u.locale,
 	u.email_enc, u.email_hmac, u.notify_replies, u.on_account_delete, u.is_platform_admin, u.suspended_at,
 	coalesce(u.suspend_reason, ''), u.created_at, u.updated_at, u.last_login_at,
-	EXISTS (SELECT 1 FROM avatars a WHERE a.user_id = u.id)`
+	EXISTS (SELECT 1 FROM avatars a WHERE a.user_id = u.id), u.idp_suspended_at`
 
 func scanUser(row pgx.Row) (model.User, error) {
 	var u model.User
 	err := row.Scan(&u.ID, &u.PublicID, &u.DisplayName, &u.AvatarKind, &u.HomepageURL, &u.Locale,
 		&u.EmailEnc, &u.EmailHMAC, &u.NotifyReplies, &u.OnAccountDelete, &u.IsPlatformAdmin, &u.SuspendedAt,
-		&u.SuspendReason, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.HasAvatar)
+		&u.SuspendReason, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.HasAvatar, &u.IDPSuspendedAt)
 	return u, notFound(err)
 }
 
@@ -59,10 +59,9 @@ func (s *Store) LoginUser(ctx context.Context, in OIDCLogin) (u model.User, crea
 			return err
 		default:
 			// The display name is the reader's own after the first login;
-			// only a verified email follows the identity service.
-			if _, err := tx.Exec(ctx, `UPDATE users SET last_login_at = now(),
-				email_enc = CASE WHEN $2::bytea IS NULL THEN email_enc ELSE $2 END,
-				email_hmac = CASE WHEN $3::bytea IS NULL THEN email_hmac ELSE $3 END
+			// the email follows the identity service, and goes when it is
+			// no longer verified there, so claims never rest on an old one.
+			if _, err := tx.Exec(ctx, `UPDATE users SET last_login_at = now(), email_enc = $2, email_hmac = $3
 				WHERE id = $1`, id, in.EmailEnc, in.EmailHMAC); err != nil {
 				return err
 			}
@@ -164,7 +163,8 @@ func (s *Store) AvatarByUser(ctx context.Context, userID int64) (Avatar, error) 
 	return a, notFound(err)
 }
 
-// SuspendUser stops an account from posting and ends all its sessions.
+// SuspendUser is the platform's suspension: the account cannot post and
+// all its sessions end.
 func (s *Store) SuspendUser(ctx context.Context, id int64, reason string) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE users SET suspended_at = coalesce(suspended_at, now()), suspend_reason = $2, updated_at = now()
@@ -179,13 +179,30 @@ func (s *Store) SuspendUser(ctx context.Context, id int64, reason string) error 
 	})
 }
 
-// UnsuspendUser lifts a suspension. With a non-empty onlyReasonPrefix it
-// lifts only a suspension whose reason starts with it, so the identity
-// service reactivating an account does not undo a platform suspension.
-func (s *Store) UnsuspendUser(ctx context.Context, id int64, onlyReasonPrefix string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE users SET suspended_at = NULL, suspend_reason = NULL, updated_at = now()
-		WHERE id = $1 AND ($2 = '' OR starts_with(coalesce(suspend_reason, ''), $2))`, id, onlyReasonPrefix)
+// UnsuspendUser lifts the platform's suspension only.
+func (s *Store) UnsuspendUser(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET suspended_at = NULL, suspend_reason = NULL, updated_at = now() WHERE id = $1`, id)
 	return err
+}
+
+// SetIDPSuspended records whether the identity service has the account
+// deactivated, kept apart from the platform's suspension so reactivation
+// never lifts that one. Suspending ends all sessions.
+func (s *Store) SetIDPSuspended(ctx context.Context, id int64, suspended bool) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE users SET idp_suspended_at = CASE WHEN $2 THEN coalesce(idp_suspended_at, now()) END,
+			updated_at = now() WHERE id = $1`, id, suspended)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		if suspended {
+			return deleteUserSessions(ctx, tx, id)
+		}
+		return nil
+	})
 }
 
 // SetPlatformAdmin grants or removes maintainer access.
@@ -234,7 +251,8 @@ func (s *Store) DeleteUserData(ctx context.Context, userID int64, mode string, f
 				return ErrSoleOwner
 			}
 			if _, err := tx.Exec(ctx, `UPDATE sites SET status = 'deleted', deleted_at = now(), updated_at = now(),
-				status_note = 'owner account removed' WHERE id = ANY($1)`, sole); err != nil {
+				status_note = CASE WHEN suspended_at IS NOT NULL THEN status_note ELSE 'owner account removed' END
+				WHERE id = ANY($1)`, sole); err != nil {
 				return err
 			}
 		}
@@ -250,6 +268,11 @@ func (s *Store) DeleteUserData(ctx context.Context, userID int64, mode string, f
 			return err
 		}
 		if err := recountThreads(ctx, tx, threads); err != nil {
+			return err
+		}
+		// Mail still queued for the account goes with it (moderation.md 6.3).
+		if _, err := tx.Exec(ctx, `DELETE FROM outbox WHERE status = 'queued'
+			AND (coalesce_key = 'reply:u:' || $1::bigint OR payload->>'user_id' = ($1::bigint)::text)`, userID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)

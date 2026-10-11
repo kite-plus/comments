@@ -26,26 +26,30 @@ import (
 // siteToken returns the site session token a request carries: the
 // Authorization header for the localStorage carrier, else the site's
 // partitioned cookie (login.md section 5).
-func (s *Server) siteToken(c *gin.Context, site model.Site) string {
+func (s *Server) siteToken(c *gin.Context, site model.Site) (token string, fromCookie bool) {
 	if v, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer "); ok {
-		return strings.TrimSpace(v)
+		return strings.TrimSpace(v), false
 	}
 	v, _ := c.Cookie(s.siteCookieName(site.PublicID))
-	return v
+	return v, true
 }
 
 // viewerOf resolves the reader behind a request on one site.
 func (s *Server) viewerOf(c *gin.Context, site model.Site) (model.Viewer, bool) {
-	token := s.siteToken(c, site)
+	token, fromCookie := s.siteToken(c, site)
 	if len(token) != 43 {
 		return model.Viewer{}, false
 	}
-	v, err := s.Store.SiteViewer(c.Request.Context(), crypt.Hash(token), site.ID)
+	v, slid, err := s.Store.SiteViewer(c.Request.Context(), crypt.Hash(token), site.ID)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, context.Canceled) {
 			s.Log.Error("site session", "error", err)
 		}
 		return model.Viewer{}, false
+	}
+	if slid != nil && fromCookie {
+		// The cookie slides with the session, or it would lapse first.
+		s.setCookie(c, s.siteCookieName(site.PublicID), token, time.Until(*slid), http.SameSiteNoneMode, true)
 	}
 	return v, true
 }
@@ -135,7 +139,7 @@ func (s *Server) signOutSite(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 		return
 	}
-	if token := s.siteToken(c, site); len(token) == 43 {
+	if token, _ := s.siteToken(c, site); len(token) == 43 {
 		if err := s.Store.DeleteSiteSession(c.Request.Context(), crypt.Hash(token), site.ID); err != nil {
 			s.storeError(c, err)
 			return
@@ -218,6 +222,10 @@ type guestIn struct {
 	Notify bool   `json:"notify"`
 	// Honeypot is a field people never see; anything in it is a bot.
 	Honeypot string `json:"website"`
+	// Token is the widget's per-browser guest token, kept in the iframe's
+	// storage: reply mail needs consent confirmed from this browser
+	// (moderation.md section 6.1).
+	Token string `json:"token"`
 }
 
 // validateBody applies the length and link limits (moderation.md 3.1).
@@ -273,7 +281,7 @@ type decision struct {
 }
 
 // spamRules applies moderation.md section 2, rules 5 to 7, to a body.
-func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, body string, member bool, user *model.User) (decision, error) {
+func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, body string, member bool, user *model.User, homepages ...string) (decision, error) {
 	ctx := c.Request.Context()
 	if utf8.RuneCountInString(strings.TrimSpace(body)) >= crossSiteMinRunes {
 		n, err := s.Store.SitesWithBody(ctx, site.ID, body)
@@ -288,7 +296,13 @@ func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, bod
 	if err != nil {
 		return decision{}, err
 	}
-	for _, h := range spam.Hosts(r.HTML) {
+	hosts := spam.Hosts(r.HTML)
+	for _, home := range homepages {
+		if u, err := url.Parse(home); err == nil && u.Hostname() != "" {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	for _, h := range hosts {
 		if spam.DomainListed(h, listed) {
 			return decision{model.StatusSpam, "spam_domain"}, nil
 		}
@@ -324,7 +338,7 @@ func (s *Server) spamDomainSet(c *gin.Context) (map[string]bool, error) {
 	}
 	m := map[string]bool{}
 	for _, d := range list {
-		m[d] = true
+		m[spam.NormalizeDomain(d)] = true
 	}
 	s.spamDomains, s.spamLoaded = m, s.Now()
 	return m, nil
@@ -383,6 +397,11 @@ func (s *Server) postComment(c *gin.Context) {
 		return
 	}
 	published := parsePublished(in.Published)
+	if published != nil && published.After(s.Now().Add(policy.PublishedFutureTolerance)) {
+		// A future date would let a commenter pre-close a page that is not
+		// out yet (sites.md section 4).
+		published = nil
+	}
 	if s.threadClosed(site, thread, published) {
 		s.fail(c, http.StatusForbidden, codeThreadLocked)
 		return
@@ -450,7 +469,11 @@ func (s *Server) postComment(c *gin.Context) {
 		s.fail(c, http.StatusConflict, codeConflict)
 		return
 	}
-	d, err := s.spamRules(c, site, r, body, signedIn, user)
+	homepage := n.AuthorURL
+	if user != nil {
+		homepage = user.HomepageURL
+	}
+	d, err := s.spamRules(c, site, r, body, signedIn, user, homepage)
 	if err != nil {
 		s.storeError(c, err)
 		return
@@ -467,8 +490,8 @@ func (s *Server) postComment(c *gin.Context) {
 		s.storeError(c, err)
 		return
 	}
-	if !signedIn && in.Guest != nil && in.Guest.Notify {
-		s.confirmGuestEmail(c, site, in)
+	if !signedIn && in.Guest != nil && in.Guest.Notify && !cm.NotifyEmail {
+		s.requestGuestConsent(c, site, in, cm.ID)
 	}
 	out := s.commentJSON(site, cm, true)
 	// Spam looks like review to its author (moderation.md section 2, rule 5).
@@ -478,14 +501,23 @@ func (s *Server) postComment(c *gin.Context) {
 	private(c, http.StatusCreated, out)
 }
 
-// ownComment loads a comment of the signed-in reader on the site.
-func (s *Server) ownComment(c *gin.Context, sitePublicID string) (model.Site, model.Viewer, model.Comment, bool) {
+// ownComment loads a comment of the signed-in reader on the site. Only an
+// active site takes edits; deleting works on any site that still exists,
+// since a comment is its author's (moderation.md section 1).
+func (s *Server) ownComment(c *gin.Context, sitePublicID string, anyStatus bool) (model.Site, model.Viewer, model.Comment, bool) {
 	id, ok := s.idParam(c, "id")
 	if !ok {
 		return model.Site{}, model.Viewer{}, model.Comment{}, false
 	}
-	site, ok := s.activeSite(c, sitePublicID)
-	if !ok {
+	var site model.Site
+	if anyStatus {
+		x, err := s.Store.Site(c.Request.Context(), sitePublicID)
+		if err != nil {
+			s.fail(c, http.StatusNotFound, codeNotFound)
+			return site, model.Viewer{}, model.Comment{}, false
+		}
+		site = x
+	} else if site, ok = s.activeSite(c, sitePublicID); !ok {
 		return site, model.Viewer{}, model.Comment{}, false
 	}
 	v, ok := s.viewerOf(c, site)
@@ -510,11 +542,21 @@ func (s *Server) editComment(c *gin.Context) {
 	if !s.bindJSON(c, &in) {
 		return
 	}
-	site, v, cm, ok := s.ownComment(c, in.Site)
+	site, v, cm, ok := s.ownComment(c, in.Site, false)
 	if !ok {
 		return
 	}
 	if v.Suspended {
+		s.fail(c, http.StatusForbidden, codeForbidden)
+		return
+	}
+	// A banned reader cannot change what they wrote either.
+	banned, err := s.Store.Banned(c.Request.Context(), site.ID, &v.UserID, nil, s.Keys.IPHMACs(c.ClientIP(), s.Now()))
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	if banned {
 		s.fail(c, http.StatusForbidden, codeForbidden)
 		return
 	}
@@ -532,7 +574,7 @@ func (s *Server) editComment(c *gin.Context) {
 		return
 	}
 	body := strings.TrimSpace(in.Body)
-	d, err := s.spamRules(c, site, r, body, true, &u)
+	d, err := s.spamRules(c, site, r, body, true, &u, u.HomepageURL)
 	if err != nil {
 		s.storeError(c, err)
 		return
@@ -556,7 +598,7 @@ func (s *Server) editComment(c *gin.Context) {
 
 // deleteComment is DELETE /api/v1/comments/{id}.
 func (s *Server) deleteComment(c *gin.Context) {
-	_, v, cm, ok := s.ownComment(c, c.Query("site"))
+	_, v, cm, ok := s.ownComment(c, c.Query("site"), true)
 	if !ok {
 		return
 	}
@@ -729,7 +771,7 @@ func validHomepage(raw string) (string, bool) {
 // commentSource is GET /api/v1/comments/{id}/source: the author's own
 // Markdown, for editing in the widget.
 func (s *Server) commentSource(c *gin.Context) {
-	_, _, cm, ok := s.ownComment(c, c.Query("site"))
+	_, _, cm, ok := s.ownComment(c, c.Query("site"), false)
 	if !ok {
 		return
 	}

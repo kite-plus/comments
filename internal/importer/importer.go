@@ -6,6 +6,7 @@
 package importer
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/kite-plus/comments/internal/policy"
 )
 
 // Formats.
@@ -28,7 +31,10 @@ const (
 // Formats lists what Parse reads.
 var Formats = []string{FormatJSON, FormatWaline, FormatTwikoo, FormatArtrans, FormatWXR}
 
-var ErrFormat = errors.New("not a file of this format")
+var (
+	ErrFormat  = errors.New("not a file of this format")
+	ErrTooMany = errors.New("the file holds more comments than an import may")
+)
 
 // Comment is one imported comment.
 type Comment struct {
@@ -53,7 +59,14 @@ type Comment struct {
 	ThreadLock  bool
 	PublishedAt *time.Time // the page's, for this service's JSON
 	PostID      string     // WordPress's post ID, for wp:<id> keys
+	// EmailEnc and EmailHMAC replace Email once the comment is stored for
+	// the import to run: the address is never kept in the clear.
+	EmailEnc  []byte `json:",omitempty"`
+	EmailHMAC []byte `json:",omitempty"`
 }
+
+// HasEmail reports whether the comment carries an address to claim with.
+func (c Comment) HasEmail() bool { return c.Email != "" || len(c.EmailHMAC) > 0 }
 
 // Failure is an entry that could not be read.
 type Failure struct {
@@ -67,19 +80,26 @@ type Result struct {
 	Failures []Failure
 }
 
-// Parse reads a file of the given format.
+// Parse reads a file of the given format, up to policy.ImportMaxComments
+// comments.
 func Parse(format string, data []byte) (Result, error) {
+	return ParseLimit(format, data, policy.ImportMaxComments)
+}
+
+// ParseLimit is Parse with another comment cap; more gives ErrTooMany.
+func ParseLimit(format string, data []byte, max int) (Result, error) {
+	r := bytes.NewReader(data)
 	switch format {
 	case FormatJSON:
-		return parseOwn(data)
+		return parseOwn(r, max)
 	case FormatWaline:
-		return parseWaline(data)
+		return parseWaline(r, max)
 	case FormatTwikoo:
-		return parseTwikoo(data)
+		return parseTwikoo(r, max)
 	case FormatArtrans:
-		return parseArtrans(data)
+		return parseArtrans(r, max)
 	case FormatWXR:
-		return parseWXR(data)
+		return parseWXR(r, max)
 	}
 	return Result{}, fmt.Errorf("unknown format %q", format)
 }

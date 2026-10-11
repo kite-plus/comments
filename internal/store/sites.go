@@ -54,8 +54,9 @@ type NewSite struct {
 	PublicID string
 }
 
-// CreateSite registers a site with its owner. An origin that already
-// belongs to a site gives ErrConflict.
+// CreateSite registers a site with its owner. Only a verified origin is
+// exclusive: a verified origin of another site, or the same origin twice,
+// gives ErrConflict.
 func (s *Store) CreateSite(ctx context.Context, n NewSite) (model.Site, error) {
 	var x model.Site
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
@@ -77,6 +78,9 @@ func (s *Store) CreateSite(ctx context.Context, n NewSite) (model.Site, error) {
 			return err
 		}
 		for i, o := range n.Origins {
+			if err := originFree(ctx, tx, o); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `INSERT INTO site_origins (origin, site_id, is_primary, verified_at, last_checked_at)
 				VALUES ($1, $2, $3, $4, $4)`, o, id, i == 0, verified); err != nil {
 				if isUniqueViolation(err) {
@@ -216,9 +220,12 @@ func (s *Store) UpdateSite(ctx context.Context, siteID int64, p SiteSettings) (m
 	return s.SiteByID(ctx, siteID)
 }
 
-// AddOrigin adds an unverified alias origin. An origin that belongs to a
-// site already gives ErrConflict.
+// AddOrigin adds an unverified alias origin. It conflicts only with the
+// same origin on this site; another site's claim counts once verified.
 func (s *Store) AddOrigin(ctx context.Context, siteID int64, origin string) error {
+	if err := originFree(ctx, s.pool, origin); err != nil {
+		return err
+	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO site_origins (origin, site_id) VALUES ($1, $2)`, origin, siteID)
 	if isUniqueViolation(err) {
 		return ErrConflict
@@ -226,11 +233,18 @@ func (s *Store) AddOrigin(ctx context.Context, siteID int64, origin string) erro
 	return err
 }
 
-// OriginOwner returns the site an origin belongs to.
-func (s *Store) OriginOwner(ctx context.Context, origin string) (int64, error) {
-	var id int64
-	err := s.pool.QueryRow(ctx, `SELECT site_id FROM site_origins WHERE origin = $1`, origin).Scan(&id)
-	return id, notFound(err)
+// originFree reports ErrConflict when another site has verified the
+// origin; an unverified claim blocks nobody (sites.md section 2).
+func originFree(ctx context.Context, q querier, origin string) error {
+	var taken bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM site_origins WHERE origin = $1 AND verified_at IS NOT NULL)`,
+		origin).Scan(&taken); err != nil {
+		return err
+	}
+	if taken {
+		return ErrConflict
+	}
+	return nil
 }
 
 // RemoveOrigin removes an alias; the primary origin stays.
@@ -280,6 +294,10 @@ func (s *Store) MarkOriginVerified(ctx context.Context, siteID int64, origin str
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE site_origins SET verified_at = coalesce(verified_at, now()), last_checked_at = now(),
 			failing_since = NULL, proof_hash = coalesce($3, proof_hash) WHERE site_id = $1 AND origin = $2`, siteID, origin, proofHash)
+		if isUniqueViolation(err) {
+			// Another site holds the origin verified (sites.md section 2).
+			return ErrConflict
+		}
 		if err != nil {
 			return err
 		}
@@ -323,8 +341,8 @@ func (s *Store) ApproveSite(ctx context.Context, siteID int64) error {
 
 // SuspendSite stops a site's widget from taking comments.
 func (s *Store) SuspendSite(ctx context.Context, siteID int64, note string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE sites SET status = 'suspended', status_note = $2, updated_at = now()
-		WHERE id = $1 AND status <> 'deleted'`, siteID, nullString(note))
+	tag, err := s.pool.Exec(ctx, `UPDATE sites SET status = 'suspended', status_note = $2, suspended_at = coalesce(suspended_at, now()),
+		updated_at = now() WHERE id = $1 AND status <> 'deleted'`, siteID, nullString(note))
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrInvalid
 	}
@@ -334,7 +352,7 @@ func (s *Store) SuspendSite(ctx context.Context, siteID int64, note string) erro
 // UnsuspendSite lifts a suspension.
 func (s *Store) UnsuspendSite(ctx context.Context, siteID int64) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE sites SET status = 'unverified', status_note = NULL, updated_at = now()
+		tag, err := tx.Exec(ctx, `UPDATE sites SET status = 'unverified', status_note = NULL, suspended_at = NULL, updated_at = now()
 			WHERE id = $1 AND status = 'suspended'`, siteID)
 		if err != nil {
 			return err
@@ -359,10 +377,13 @@ func (s *Store) DeleteSite(ctx context.Context, siteID int64) error {
 	return err
 }
 
-// RestoreSite brings a deleted site back within the recovery window.
+// RestoreSite brings a deleted site back within the recovery window. A
+// site the platform had suspended comes back suspended, with its note.
 func (s *Store) RestoreSite(ctx context.Context, siteID int64) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE sites SET status = 'unverified', deleted_at = NULL, status_note = NULL, updated_at = now()
+		tag, err := tx.Exec(ctx, `UPDATE sites SET deleted_at = NULL, updated_at = now(),
+			status = CASE WHEN suspended_at IS NOT NULL THEN 'suspended' ELSE 'unverified' END,
+			status_note = CASE WHEN suspended_at IS NOT NULL THEN status_note END
 			WHERE id = $1 AND status = 'deleted' AND deleted_at > now() - $2 * interval '1 second'`, siteID, seconds(policy.DeletedSitesKept))
 		if err != nil {
 			return err
@@ -459,4 +480,12 @@ func (s *Store) RecordRecheck(ctx context.Context, siteID int64, origin string, 
 		return nil
 	})
 	return firstFailure, dropped, err
+}
+
+// CountSites counts the sites an account created that are not deleted,
+// for the cap in moderation.md section 3.4.
+func (s *Store) CountSites(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM sites WHERE created_by = $1 AND status <> 'deleted'`, userID).Scan(&n)
+	return n, err
 }

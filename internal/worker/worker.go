@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/textproto"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/kite-plus/comments/internal/markup"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/policy"
+	"github.com/kite-plus/comments/internal/spam"
 	"github.com/kite-plus/comments/internal/store"
 	"github.com/kite-plus/comments/internal/verify"
 )
@@ -115,24 +118,28 @@ func (w *Worker) queueOwners(ctx context.Context, mode, kind string) {
 }
 
 // Reconcile fetches identity service events missed by the webhook
-// (login.md section 7).
+// (login.md section 7). Only the first page of a run starts before the
+// stored cursor, by idp.SearchOverlap; later pages start at the last event
+// seen, so a burst of events cannot hold a run on one page.
 func (w *Worker) Reconcile(ctx context.Context) {
 	if w.IDP == nil {
 		return
 	}
-	cursor, err := w.Store.IDPCursor(ctx)
+	stored, err := w.Store.IDPCursor(ctx)
 	if err != nil {
 		w.Log.Error("reconcile", "error", err)
 		return
 	}
-	if cursor == "" {
-		cursor = w.now().Add(-policy.IDPEventsKept).UTC().Format(time.RFC3339Nano)
+	from := w.now().Add(-policy.IDPEventsKept)
+	if t, err := time.Parse(time.RFC3339Nano, stored); err == nil {
+		from = t.Add(-idp.SearchOverlap)
 	}
 	// A subject whose state cannot be read is retried next run: the stored
 	// cursor never moves past the earliest such event.
 	var retryFrom *time.Time
-	for range 20 {
-		events, next, err := w.IDP.Search(ctx, cursor, 500)
+	var last time.Time
+	for range 50 {
+		events, pageLast, err := w.IDP.Search(ctx, from, reconcilePage)
 		if err != nil {
 			w.Log.Warn("reconcile", "error", err)
 			return
@@ -152,25 +159,31 @@ func (w *Worker) Reconcile(ctx context.Context) {
 				applied++
 			}
 		}
-		stored := next
-		if retryFrom != nil {
-			if t, err := time.Parse(time.RFC3339Nano, next); err != nil || retryFrom.Before(t) {
-				stored = retryFrom.UTC().Format(time.RFC3339Nano)
-			}
-		}
-		if err := w.Store.SetIDPCursor(ctx, stored); err != nil {
-			w.Log.Error("reconcile", "error", err)
-			return
-		}
 		if applied > 0 {
 			w.Log.Info("reconcile", "events", len(events), "applied", applied)
 		}
-		if len(events) < 500 || next == cursor {
+		progressed := pageLast.After(last)
+		last = pageLast
+		cursor := last
+		if retryFrom != nil && retryFrom.Before(cursor) {
+			cursor = *retryFrom
+		}
+		if !cursor.IsZero() {
+			if err := w.Store.SetIDPCursor(ctx, cursor.UTC().Format(time.RFC3339Nano)); err != nil {
+				w.Log.Error("reconcile", "error", err)
+				return
+			}
+		}
+		if len(events) < reconcilePage || !progressed {
 			return
 		}
-		cursor = next
+		// Events at exactly the last instant come again and deduplicate.
+		from = last.Add(-time.Microsecond)
 	}
 }
+
+// reconcilePage is the event search's page size.
+const reconcilePage = 500
 
 func (w *Worker) rerender(ctx context.Context) {
 	stale, err := w.Store.StaleRenders(ctx, markup.Version, 200)
@@ -280,15 +293,15 @@ func (w *Worker) sendGroup(ctx context.Context, group []store.Mail) {
 		}
 		return
 	case err != nil:
-		w.Log.Error("mail render", "kind", group[0].Kind, "error", err)
-		if err := w.Store.MailFailed(ctx, ids, err.Error()); err != nil {
+		w.Log.Error("mail render", "kind", group[0].Kind, "error", scrub(err))
+		if err := w.Store.MailFailed(ctx, ids, scrub(err)); err != nil {
 			w.Log.Error("mail", "error", err)
 		}
 		return
 	}
 	if err := w.Mailer.Send(ctx, msg); err != nil {
-		w.Log.Warn("mail send", "kind", group[0].Kind, "error", err)
-		if err := w.Store.MailFailed(ctx, ids, err.Error()); err != nil {
+		w.Log.Warn("mail send", "kind", group[0].Kind, "error", scrub(err))
+		if err := w.Store.MailFailed(ctx, ids, scrub(err)); err != nil {
 			w.Log.Error("mail", "error", err)
 		}
 		return
@@ -302,6 +315,36 @@ func (w *Worker) sendGroup(ctx context.Context, group []store.Mail) {
 }
 
 var errNothing = errors.New("nothing left to send")
+
+var address = regexp.MustCompile(`[^\s<>"'(),;:]+@[^\s<>"'(),;:]+`)
+
+// scrub keeps recipients out of logs and outbox.last_error: an SMTP error
+// becomes its reply code, anything else loses every address in it.
+func scrub(err error) string {
+	if tp, ok := errors.AsType[*textproto.Error](err); ok {
+		return fmt.Sprintf("smtp %d", tp.Code)
+	}
+	msg := address.ReplaceAllString(err.Error(), "<address>")
+	if r := []rune(msg); len(r) > 200 {
+		msg = string(r[:200])
+	}
+	return msg
+}
+
+// userRecipient re-reads an account when its mail goes out: deleted,
+// suspended or opted-out accounts get nothing, and the address is the
+// account's current one, not the one queued.
+func (w *Worker) userRecipient(ctx context.Context, userID int64, needReplies bool) (model.User, string, error) {
+	u, err := w.Store.User(ctx, userID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && (u.Suspended() || u.EmailEnc == nil || (needReplies && !u.NotifyReplies))) {
+		return u, "", errNothing
+	}
+	if err != nil {
+		return u, "", err
+	}
+	to, err := w.Keys.Decrypt(u.EmailEnc)
+	return u, to, err
+}
 
 type payload struct {
 	CommentID  int64   `json:"comment_id"`
@@ -340,9 +383,36 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 		for _, p := range ps {
 			ids = append(ids, p.CommentID)
 		}
-		items, threads, err := w.items(ctx, ids, locale, true)
+		muted := map[int64]bool{}
+		if first.Kind == "reply" {
+			u, current, err := w.userRecipient(ctx, ps[0].UserID, true)
+			if err != nil {
+				return mailer.Message{}, nil, err
+			}
+			to, locale = current, u.Locale
+			list, err := w.Store.Muted(ctx, u.ID)
+			if err != nil {
+				return mailer.Message{}, nil, err
+			}
+			for _, id := range list {
+				muted[id] = true
+			}
+		} else if ok, err := w.Store.GuestMailable(ctx, w.Keys.EmailHMAC(to)); err != nil || !ok {
+			if err != nil {
+				return mailer.Message{}, nil, err
+			}
+			return mailer.Message{}, nil, errNothing
+		}
+		all, allThreads, err := w.items(ctx, ids, locale, true)
 		if err != nil {
 			return mailer.Message{}, nil, err
+		}
+		var items []mailer.Item
+		var threads []int64
+		for i, it := range all {
+			if !muted[allThreads[i]] {
+				items, threads = append(items, it), append(threads, allThreads[i])
+			}
 		}
 		if len(items) == 0 {
 			return mailer.Message{}, nil, errNothing
@@ -367,8 +437,11 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 	case "owner", "digest":
 		p := ps[0]
 		site, err := w.Store.SiteByID(ctx, p.SiteID)
-		if err != nil {
+		if err != nil || site.OwnerNotify == model.NotifyOff {
 			return mailer.Message{}, nil, errNothing
+		}
+		if to, err = w.ownerRecipient(ctx, site.ID, p.UserID); err != nil {
+			return mailer.Message{}, nil, err
 		}
 		shown := p.CommentIDs
 		if len(shown) > 20 {
@@ -389,6 +462,9 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 		site, err := w.Store.SiteByID(ctx, p.SiteID)
 		if err != nil {
 			return mailer.Message{}, nil, errNothing
+		}
+		if to, err = w.ownerRecipient(ctx, site.ID, p.UserID); err != nil {
+			return mailer.Message{}, nil, err
 		}
 		_, commentID, err := w.Store.ReportSite(ctx, p.ReportID)
 		if err != nil {
@@ -442,6 +518,9 @@ func (w *Worker) items(ctx context.Context, ids []int64, locale string, publishe
 			continue
 		}
 		name := c.AuthorName
+		// The first commenter chose the title: cleaned and cut before it
+		// reaches anyone else's mail (sites.md section 4).
+		c.ThreadTitle = cut(spam.CleanName(c.ThreadTitle), policy.MailTitleRunes)
 		if c.AuthorKind == model.AuthorFormerUser || name == "" {
 			name = map[bool]string{true: "已注销用户", false: "Deleted user"}[locale != "en"]
 		}
@@ -452,4 +531,25 @@ func (w *Worker) items(ctx context.Context, ids []int64, locale string, publishe
 		threads = append(threads, c.ThreadID)
 	}
 	return items, threads, nil
+}
+
+// ownerRecipient is userRecipient for a site's owner, who must still own
+// the site.
+func (w *Worker) ownerRecipient(ctx context.Context, siteID, userID int64) (string, error) {
+	role, err := w.Store.Role(ctx, siteID, userID)
+	if err != nil {
+		return "", err
+	}
+	if role != model.RoleOwner {
+		return "", errNothing
+	}
+	_, to, err := w.userRecipient(ctx, userID, false)
+	return to, err
+}
+
+func cut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }

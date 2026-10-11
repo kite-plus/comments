@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kite-plus/comments/internal/crypt"
 	"github.com/kite-plus/comments/internal/model"
 	"github.com/kite-plus/comments/internal/pow"
 	"github.com/kite-plus/comments/internal/store"
@@ -95,7 +96,8 @@ func TestGuestCommentAndConfirmation(t *testing.T) {
 		}
 		return pow.Solution{Challenge: ch.Challenge, Salt: ch.Salt, Signature: ch.Signature, Number: n}
 	}
-	guest := map[string]any{"name": "Gail", "email": "gail@example.com", "notify": true}
+	browserA := crypt.Token()
+	guest := map[string]any{"name": "Gail", "email": "gail@example.com", "notify": true, "token": browserA}
 	body := func(text string, p *pow.Solution) map[string]any {
 		return map[string]any{"site": e.site.PublicID, "key": blogKey, "url": blogPage, "title": "A", "body": text, "guest": guest, "pow": p, "lang": "en"}
 	}
@@ -107,6 +109,7 @@ func TestGuestCommentAndConfirmation(t *testing.T) {
 	if w.Code != http.StatusCreated || decode(t, w)["author"].(map[string]any)["kind"] != "guest" {
 		t.Fatalf("guest comment = %d %s", w.Code, w.Body)
 	}
+	first := decode(t, w)["id"].(string)
 	if w := e.do(req{method: "POST", path: "/api/v1/comments", body: body("again", &sol), headers: own()}); w.Code != http.StatusBadRequest {
 		t.Errorf("spent proof of work = %d", w.Code)
 	}
@@ -140,6 +143,47 @@ func TestGuestCommentAndConfirmation(t *testing.T) {
 	_ = e.db.QueryRow(context.Background(), `SELECT confirmed_at IS NOT NULL FROM guest_emails`).Scan(&confirmed)
 	if !confirmed {
 		t.Error("not confirmed")
+	}
+	notify := func(id string) bool {
+		var on bool
+		if err := e.db.QueryRow(context.Background(), `SELECT notify_email FROM comments WHERE id = $1`, id).Scan(&on); err != nil {
+			t.Fatal(err)
+		}
+		return on
+	}
+	mails := func() int {
+		var n int
+		_ = e.db.QueryRow(context.Background(), `SELECT count(*) FROM outbox WHERE kind = 'guest_confirm'`).Scan(&n)
+		return n
+	}
+	if !notify(first) {
+		t.Error("the confirmed comment gets no reply mail")
+	}
+	// The same browser needs no new confirmation ...
+	s4 := solve()
+	w = e.do(req{method: "POST", path: "/api/v1/comments", body: body("from the same browser", &s4), headers: own()})
+	if w.Code != http.StatusCreated || !notify(decode(t, w)["id"].(string)) || mails() != 1 {
+		t.Errorf("same browser = %d, mails %d", w.Code, mails())
+	}
+	// ... another browser with the same address does, by mail.
+	guest["token"] = crypt.Token()
+	if _, err := e.db.Exec(context.Background(), `UPDATE guest_emails SET confirm_sent_at = now() - interval '2 days'`); err != nil {
+		t.Fatal(err)
+	}
+	s5 := solve()
+	w = e.do(req{method: "POST", path: "/api/v1/comments", body: body("from another browser", &s5), headers: own()})
+	if w.Code != http.StatusCreated || notify(decode(t, w)["id"].(string)) || mails() != 2 {
+		t.Errorf("another browser = %d, mails %d", w.Code, mails())
+	}
+	// No token at all is never a confirmed browser.
+	delete(guest, "token")
+	if _, err := e.db.Exec(context.Background(), `UPDATE guest_emails SET confirm_sent_at = now() - interval '2 days'`); err != nil {
+		t.Fatal(err)
+	}
+	s6 := solve()
+	w = e.do(req{method: "POST", path: "/api/v1/comments", body: body("no token", &s6), headers: own()})
+	if w.Code != http.StatusCreated || notify(decode(t, w)["id"].(string)) || mails() != 3 {
+		t.Errorf("no token = %d, mails %d", w.Code, mails())
 	}
 	// Guests are off on the other site.
 	s3 := solve()

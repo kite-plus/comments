@@ -23,7 +23,8 @@ type Import struct {
 	HasFile    bool
 }
 
-// CreateImport stores an uploaded file.
+// CreateImport stores an import's parsed comments, with guest addresses
+// already encrypted; the uploaded file itself is never kept.
 func (s *Store) CreateImport(ctx context.Context, siteID int64, format string, file []byte, by int64) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `INSERT INTO imports (site_id, format, file, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -184,7 +185,7 @@ func (s *Store) ImportComments(ctx context.Context, siteID int64, source string,
 			if err := tx.QueryRow(ctx, `INSERT INTO comments (site_id, thread_id, root_id, parent_id, author_kind, author_name,
 				author_email_enc, author_email_hmac, author_url, author_ref, body_md, body_html, render_version, status, pinned_at,
 				source, source_id, created_at, updated_at, edited_at, published_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20) RETURNING id`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20) RETURNING id`,
 				siteID, threadID, root, parent, c.AuthorKind, c.AuthorName, c.EmailEnc, c.EmailHMAC, nullString(c.AuthorURL),
 				nullString(c.AuthorRef), c.BodyMD, c.BodyHTML, c.RenderVersion, c.Status, pinned, source, c.SourceID,
 				c.CreatedAt, c.EditedAt, published).Scan(&id); err != nil {
@@ -201,4 +202,11 @@ func (s *Store) ImportComments(ctx context.Context, siteID int64, source string,
 		return recountThreads(ctx, tx, list)
 	})
 	return st, err
+}
+
+// ImportedCount counts a site's imported comments, for its quota.
+func (s *Store) ImportedCount(ctx context.Context, siteID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM comments WHERE site_id = $1 AND source <> 'native'`, siteID).Scan(&n)
+	return n, err
 }

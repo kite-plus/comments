@@ -138,7 +138,7 @@ func (s *Store) RedeemWidgetLogin(ctx context.Context, siteID int64, challenge [
 			return err
 		}
 		var suspended bool
-		if err := tx.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM users WHERE id = $1`, *t.UserID).Scan(&suspended); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT suspended_at IS NOT NULL OR idp_suspended_at IS NOT NULL FROM users WHERE id = $1`, *t.UserID).Scan(&suspended); err != nil {
 			return notFound(err)
 		}
 		if suspended {
@@ -165,7 +165,7 @@ func ensureSiteAuthor(ctx context.Context, q querier, siteID, userID int64) erro
 func viewer(ctx context.Context, q querier, siteID, userID int64) (model.Viewer, error) {
 	v := model.Viewer{UserID: userID}
 	err := q.QueryRow(ctx, `SELECT sa.public_id::text, u.display_name, coalesce(m.role, ''), u.notify_replies,
-		u.avatar_kind = 'idp' AND a.user_id IS NOT NULL, coalesce(a.etag, ''), u.email_enc IS NOT NULL, u.suspended_at IS NOT NULL
+		u.avatar_kind = 'idp' AND a.user_id IS NOT NULL, coalesce(a.etag, ''), u.email_enc IS NOT NULL, (u.suspended_at IS NOT NULL OR u.idp_suspended_at IS NOT NULL)
 		FROM users u
 		JOIN site_authors sa ON sa.user_id = u.id AND sa.site_id = $1
 		LEFT JOIN site_members m ON m.user_id = u.id AND m.site_id = $1
@@ -176,14 +176,15 @@ func viewer(ctx context.Context, q querier, siteID, userID int64) (model.Viewer,
 
 // SiteViewer resolves a site session token for the site it was issued
 // for. Reading a session slides its expiry at most once a day, up to the
-// maximum age.
-func (s *Store) SiteViewer(ctx context.Context, tokenHash []byte, siteID int64) (model.Viewer, error) {
+// maximum age; slid is the new expiry when that happened, so the cookie can
+// slide with it.
+func (s *Store) SiteViewer(ctx context.Context, tokenHash []byte, siteID int64) (v model.Viewer, slid *time.Time, err error) {
 	var userID int64
 	var created, lastUsed time.Time
-	err := s.pool.QueryRow(ctx, `SELECT user_id, created_at, last_used_at FROM site_sessions
+	err = s.pool.QueryRow(ctx, `SELECT user_id, created_at, last_used_at FROM site_sessions
 		WHERE token_hash = $1 AND site_id = $2 AND expires_at > now()`, tokenHash, siteID).Scan(&userID, &created, &lastUsed)
 	if err != nil {
-		return model.Viewer{}, notFound(err)
+		return model.Viewer{}, nil, notFound(err)
 	}
 	now := time.Now()
 	if touchDue(lastUsed, now, policy.SessionTouchEvery) {
@@ -193,13 +194,15 @@ func (s *Store) SiteViewer(ctx context.Context, tokenHash []byte, siteID int64) 
 		}
 		if _, err := s.pool.Exec(ctx, `UPDATE site_sessions SET last_used_at = now(), expires_at = $2 WHERE token_hash = $1`,
 			tokenHash, expires); err != nil {
-			return model.Viewer{}, err
+			return model.Viewer{}, nil, err
 		}
+		slid = &expires
 	}
 	if err := ensureSiteAuthor(ctx, s.pool, siteID, userID); err != nil {
-		return model.Viewer{}, err
+		return model.Viewer{}, nil, err
 	}
-	return viewer(ctx, s.pool, siteID, userID)
+	v, err = viewer(ctx, s.pool, siteID, userID)
+	return v, slid, err
 }
 
 // DeleteSiteSession ends one site session ("sign out of this site").
