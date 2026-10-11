@@ -1,4 +1,7 @@
 node_modules/
-dist/
 coverage/
 *.tsbuildinfo
+# The Go binary embeds dist/; only the placeholder that keeps go build
+# working without a frontend build is tracked (see web/embed.go on main).
+dist/*
+!dist/.gitkeep
