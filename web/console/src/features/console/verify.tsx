@@ -111,7 +111,7 @@ function VerifyBody({ site }: { site: Site }) {
   const run = useApiMutation(() => api.sites.checkVerification(site.id), {
     invalidate: [keys.sites],
     onSuccess: (result) => {
-      setFailure(null)
+      setFailure(result.failed ? t('verify.noneOk') : null)
       setCheck(result)
       queryClient.setQueryData(keys.site(site.id), result.site)
     },

@@ -247,6 +247,11 @@ export const en: Catalog = {
   'claims.desc':
     'Move comments you left as a guest, including old comments a blog owner imported, under your account.',
   'claims.formTitle': 'Send a verification email',
+  'claims.ownTitle': 'Comments left with your account email',
+  'claims.ownDesc':
+    'Found {count} guest comments left with {email}. It is your account\'s verified address, so no email is needed; confirm to claim them.',
+  'claims.ownDesc_one':
+    'Found 1 guest comment left with {email}. It is your account\'s verified address, so no email is needed; confirm to claim it.',
   'claims.note':
     'The email is sent whether or not that address has comments, and this page never shows a count, so nobody can use it to find where others commented.',
   'claims.email': 'The email you used then',
@@ -329,6 +334,9 @@ export const en: Catalog = {
   'overview.embedSpaDesc':
     'VitePress, Docusaurus and similar: render <kite-comments> in the layout and pass page-key when posts have stable IDs. The framework updates the attributes on navigation; no API calls needed.',
   'overview.embedCode': 'Embed code',
+  'overview.embedPinned': 'Pinned version',
+  'overview.embedPinnedDesc':
+    'Locks embed.js {version} with an integrity check, so even a compromised comment service cannot change your pages. It does not update by itself.',
   'overview.origins': 'Origins',
   'overview.manageOrigins': 'Manage origins',
   'overview.notOwner': 'Only the site owner can change settings and verify origins.',
@@ -364,6 +372,7 @@ export const en: Catalog = {
   'verify.check': 'Check now',
   'verify.checking': 'Checking...',
   'verify.failedTitle': 'Verification did not pass',
+  'verify.noneOk': 'No origin passed. See what was found for each one below.',
   'verify.resultOk': '{origin} verified ({method})',
   'verify.resultFail': '{origin} did not pass',
   'verify.allVerified': 'All origins are verified',
@@ -374,12 +383,14 @@ export const en: Catalog = {
   'queue.desc':
     `Approve, hide, mark as spam or restore comments; every action goes into the audit log. Moderators cannot rewrite anyone's comment.`,
   'queue.tab.pending': 'Pending',
+  'queue.tab.reported': 'Reported',
   'queue.tab.published': 'Published',
   'queue.tab.hidden': 'Hidden',
   'queue.tab.spam': 'Spam',
   'queue.tab.all': 'All',
   'queue.emptyPending': 'Nothing is waiting for moderation.',
   'queue.empty': 'No comments here.',
+  'queue.emptyReported': 'No reported comments.',
   'queue.threadFilter': 'Thread: {title}',
   'queue.clearThread': 'Clear filter',
   'queue.filterByThread': 'Show only this thread',
@@ -508,6 +519,7 @@ export const en: Catalog = {
   'threads.keySame': 'That is the current key.',
   'threads.moveButton': 'Move',
   'threads.moved': 'Moved {count} comments',
+  'threads.movedDone': 'Thread moved',
   'threads.moved_one': 'Moved 1 comment',
   'threads.merged': 'Merged into the existing thread; moved {count} comments',
 
@@ -520,8 +532,10 @@ export const en: Catalog = {
   'events.movedCount': '{count} comments',
   'events.movedCount_one': '1 comment',
   'events.rule': 'Rule: {rule}',
-  'events.undoNote':
-    'Thread moves can be undone, but the console has no undo button yet; ask a platform maintainer if you need one reverted.',
+  'events.undo': 'Undo',
+  'events.undoTitle': 'Undo this move?',
+  'events.undoDesc': 'The moved comments go back to the original thread key.',
+  'events.undone': 'Move undone',
   'events.action.approve': 'approved a comment',
   'events.action.hide': 'hid a comment',
   'events.action.spam': 'marked a comment as spam',

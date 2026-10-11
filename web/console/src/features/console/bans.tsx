@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { NotFound } from '@/features/errors'
-import { DurationSelect, expiresAt, type BanDuration } from './ban-dialog'
+import { DurationSelect, banDays, type BanDuration } from './ban-dialog'
 import { useSite } from './site-context'
 
 function EmailBanDialog({ siteId, open, onOpenChange }: { siteId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -41,10 +41,10 @@ function EmailBanDialog({ siteId, open, onOpenChange }: { siteId: string; open: 
   const ban = useApiMutation(
     () =>
       api.sites.ban(siteId, {
-        target: 'email',
+        kind: 'email',
         email: email.trim(),
         reason: reason.trim() || undefined,
-        expires_at: expiresAt(duration),
+        days: banDays(duration),
       }),
     {
       invalidate: [keys.bans(siteId), keys.events(siteId)],

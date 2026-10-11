@@ -100,6 +100,8 @@ export type MyComment = {
   id: BigId
   site: SiteRef
   thread: ThreadRef
+  /** The thread URL with #kc-<id>, when the server sends it. */
+  url?: string
   root_id: BigId | null
   parent_id: BigId | null
   body_html: string
@@ -124,11 +126,19 @@ export type Notification = {
     author: { name: string; avatar: string | null }
     /** Plain text, at most 200 characters (moderation.md 6.1). */
     excerpt: string
+    url?: string
   }
 }
 
 /** Assumed: the list carries the unread total for the badge. */
 export type NotificationPage = Page<Notification> & { unread_count?: number }
+
+/** Assumed: POST /api/v1/me/claims answers 202 with the claim. */
+export type ClaimStarted = {
+  id?: BigId
+  /** True when the address is the account's own verified one (sites.md 6, step 6). */
+  verified?: boolean
+}
 
 /** GET /api/v1/me/site-sessions item. */
 export type SiteSession = {
@@ -285,8 +295,9 @@ export type ConsoleComment = {
   created_at: Timestamp
   edited_at: Timestamp | null
   reply_count: number
+  url?: string
   /** Assumed: the queue needs to know where each comment lives. */
-  thread: ThreadRef & { key: string }
+  thread: ThreadRef & { key?: string }
   /** Assumed: open reports on this comment. */
   report_count?: number
 }
@@ -294,8 +305,11 @@ export type ConsoleComment = {
 /** api.md 5 and moderation.md 4.1; there is no manager delete. */
 export type ModerationAction = 'approve' | 'hide' | 'spam' | 'restore' | 'pin' | 'unpin'
 
+/** "reported" lists comments with open reports (moderation.md 4.1). */
+export type QueueStatus = CommentStatus | 'reported'
+
 export type QueueFilter = {
-  status?: CommentStatus
+  status?: QueueStatus
   thread?: BigId
 }
 
@@ -313,17 +327,20 @@ export type Thread = {
   created_at: Timestamp
 }
 
+/** Assumed field names; clearing a time needs its own flag in Go. */
 export type ThreadPatch = Partial<{
   locked: boolean
   title: string
   url: string
-  page_published_at: Timestamp | null
+  published_at: Timestamp
+  clear_published_at: true
 }>
 
 export type ThreadMoved = {
   thread: Thread
-  moved: number
-  merged: boolean
+  /** null when the server does not say. */
+  moved: number | null
+  merged: boolean | null
 }
 
 export type ReportReason = 'spam' | 'abuse' | 'illegal' | 'privacy' | 'other'
@@ -353,10 +370,13 @@ export type Ban = {
   site_id: Uuid | null
 }
 
-/** Assumed request shape for POST /api/v1/sites/{site}/bans. */
+/**
+ * Assumed request shape for POST /api/v1/sites/{site}/bans: the author,
+ * guest email or IP of a comment, or an email typed in. days 0 is forever.
+ */
 export type BanCreate =
-  | { target: BanTarget; comment_id: BigId; reason?: string; expires_at?: Timestamp | null }
-  | { target: 'email'; email: string; reason?: string; expires_at?: Timestamp | null }
+  | { kind: BanTarget; comment_id: BigId; reason?: string; days?: number }
+  | { kind: 'email'; email: string; reason?: string; days?: number }
 
 /** moderation.md 4.4. */
 export type EventAction =
@@ -409,8 +429,12 @@ export type AdminSite = {
   verified_at: Timestamp | null
 }
 
-/** Assumed: PATCH /api/v1/admin/sites/{site}. */
-export type AdminSitePatch = {
-  status: 'active' | 'suspended'
-  status_note?: string
+export type AdminSiteAction = 'approve' | 'suspend' | 'unsuspend'
+
+/** Assumed: GET /api/v1/embed-info, for the pinned embed.js with SRI (widget.md 10). */
+export type EmbedInfo = {
+  version: string
+  script_url: string
+  pinned_url: string
+  integrity: string
 }

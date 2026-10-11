@@ -32,13 +32,10 @@ export default function ReportsPage() {
   const [banning, setBanning] = useState<ConsoleComment | null>(null)
 
   const decide = useApiMutation(
-    async ({ report, outcome }: Decision) => {
-      if (outcome === 'hide') {
-        await api.sites.moderate(site.id, [report.comment.id], 'hide')
-        return api.sites.updateReport(site.id, report.id, 'resolved')
-      }
-      return api.sites.updateReport(site.id, report.id, outcome)
-    },
+    ({ report, outcome }: Decision) =>
+      outcome === 'hide'
+        ? api.sites.updateReport(site.id, report.id, 'resolved', 'hide')
+        : api.sites.updateReport(site.id, report.id, outcome),
     {
       invalidate: [keys.site(site.id), keys.sites],
       onSuccess: (_, { outcome }) => toast.success(t(`reports.done.${outcome}`)),

@@ -70,8 +70,10 @@ function EditDialog({
     if (title.trim() !== thread.title) patch.title = title.trim()
     if (url.trim() !== thread.url) patch.url = url.trim()
     const nextPublished = published ? new Date(published).toISOString() : null
-    if (toLocalInput(nextPublished) !== toLocalInput(thread.page_published_at))
-      patch.page_published_at = nextPublished
+    if (toLocalInput(nextPublished) !== toLocalInput(thread.page_published_at)) {
+      if (nextPublished) patch.published_at = nextPublished
+      else patch.clear_published_at = true
+    }
     if (!Object.keys(patch).length) return onClose()
     save.mutate(patch)
   }
@@ -135,9 +137,11 @@ function MoveDialog({
     invalidate: [keys.threads(siteId), keys.site(siteId)],
     onSuccess: (result) => {
       toast.success(
-        result.merged
-          ? t('threads.merged', { count: result.moved })
-          : t('threads.moved', { count: result.moved })
+        result.moved === null
+          ? t('threads.movedDone')
+          : result.merged
+            ? t('threads.merged', { count: result.moved })
+            : t('threads.moved', { count: result.moved })
       )
       onClose()
     },

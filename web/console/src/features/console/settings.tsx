@@ -302,7 +302,6 @@ function SettingsForm({ site }: { site: Site }) {
 
 function Origins({ site }: { site: Site }) {
   const { t } = useI18n()
-  const queryClient = useQueryClient()
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
@@ -311,12 +310,9 @@ function Origins({ site }: { site: Site }) {
 
   const add = useApiMutation((origin: string) => api.sites.addOrigin(site.id, origin), {
     invalidate: refresh,
-    onSuccess: (origin) => {
-      queryClient.setQueryData<Site>(keys.site(site.id), (old) =>
-        old ? { ...old, origins: [...old.origins, origin] } : old
-      )
+    onSuccess: (_, origin) => {
       setValue('')
-      toast.success(t('settings.originAdded', { origin: origin.origin }))
+      toast.success(t('settings.originAdded', { origin }))
     },
     onError: (err) => {
       if (api.isApiError(err) && err.status < 500 && err.status !== 401) {

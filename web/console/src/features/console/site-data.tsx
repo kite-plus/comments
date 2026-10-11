@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router'
 import { Download, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import * as api from '@/api'
@@ -21,19 +19,15 @@ import { useSite } from './site-context'
 export default function SiteDataPage() {
   const { t, formatDate } = useI18n()
   const site = useSite()
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const [format, setFormat] = useState<ExportFormat>('json')
   const [exporting, setExporting] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   const remove = useApiMutation(() => api.sites.remove(site.id), {
-    invalidate: [keys.sites],
-    onSuccess: (updated) => {
-      queryClient.setQueryData(keys.site(site.id), updated)
+    invalidate: [keys.sites, keys.site(site.id)],
+    onSuccess: () => {
       setConfirming(false)
       toast.success(t('siteData.deleted', { days: POLICY.siteRestoreDays }))
-      navigate(`/console/sites/${site.id}`)
     },
   })
   const restore = useApiMutation(() => api.sites.restore(site.id), {

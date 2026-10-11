@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { Flag, Mail, Pin, Reply } from 'lucide-react'
 import type { ConsoleComment } from '@/api'
 import { useI18n } from '@/i18n'
+import { permalink } from '@/lib/permalink'
 import { cn } from '@/lib/utils'
 import {
   CommentBody,
@@ -98,7 +99,7 @@ export function ConsoleCommentCard({
           {actions}
           {comment.status === 'published' && (
             <ExternalLink
-              href={`${comment.thread.url}#kc-${comment.id}`}
+              href={comment.url ?? permalink(comment.thread.url, comment.id)}
               className='ms-auto text-xs text-muted-foreground'
             >
               {t('queue.viewOnPage')}

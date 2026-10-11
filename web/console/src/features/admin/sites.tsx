@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router'
 import { Check, Pause, Play, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import * as api from '@/api'
-import type { AdminSite, SiteStatus } from '@/api'
+import type { AdminSite, AdminSiteAction, SiteStatus } from '@/api'
 import { useMe } from '@/context/auth'
 import { useI18n } from '@/i18n'
 import { keys, useApiMutation, useCursorList } from '@/hooks/use-api'
@@ -18,6 +18,12 @@ import { NotFound } from '@/features/errors'
 
 const TABS = ['pending_review', 'active', 'suspended', 'all'] as const
 type Tab = (typeof TABS)[number]
+
+const DONE = {
+  approve: 'admin.approved',
+  suspend: 'admin.suspended',
+  unsuspend: 'admin.unsuspended',
+} as const
 
 /** api.md section 8, minimal: approve beta sites and suspend abusive ones. */
 export default function AdminSitesPage() {
@@ -37,23 +43,14 @@ export default function AdminSitesPage() {
   const [note, setNote] = useState('')
 
   const update = useApiMutation(
-    ({ site, next }: { site: AdminSite; next: 'active' | 'suspended' }) =>
-      api.admin.updateSite(site.id, { status: next, status_note: next === 'suspended' ? note.trim() : undefined }),
+    ({ site, action }: { site: AdminSite; action: AdminSiteAction }) =>
+      api.admin.siteAction(site.id, action, action === 'suspend' ? note.trim() : undefined),
     {
       invalidate: [['admin', 'sites'], keys.sites],
-      onSuccess: (_, { site, next }) => {
+      onSuccess: (_, { site, action }) => {
         setSuspending(null)
         setNote('')
-        toast.success(
-          t(
-            next === 'suspended'
-              ? 'admin.suspended'
-              : site.status === 'suspended'
-                ? 'admin.unsuspended'
-                : 'admin.approved',
-            { name: site.name }
-          )
-        )
+        toast.success(t(DONE[action], { name: site.name }))
       },
     }
   )
@@ -105,7 +102,7 @@ export default function AdminSitesPage() {
                 </div>
                 <div className='flex gap-2'>
                   {site.status === 'pending_review' && (
-                    <Button size='sm' disabled={update.isPending} onClick={() => update.mutate({ site, next: 'active' })}>
+                    <Button size='sm' disabled={update.isPending} onClick={() => update.mutate({ site, action: 'approve' })}>
                       <Check />
                       {t('admin.approve')}
                     </Button>
@@ -117,7 +114,7 @@ export default function AdminSitesPage() {
                     </Button>
                   )}
                   {site.status === 'suspended' && (
-                    <Button size='sm' variant='outline' disabled={update.isPending} onClick={() => update.mutate({ site, next: 'active' })}>
+                    <Button size='sm' variant='outline' disabled={update.isPending} onClick={() => update.mutate({ site, action: 'unsuspend' })}>
                       <Play />
                       {t('admin.unsuspend')}
                     </Button>
@@ -136,7 +133,7 @@ export default function AdminSitesPage() {
         confirmText={t('admin.suspend')}
         destructive
         isLoading={update.isPending}
-        onConfirm={() => suspending && update.mutate({ site: suspending, next: 'suspended' })}
+        onConfirm={() => suspending && update.mutate({ site: suspending, action: 'suspend' })}
       >
         <div className='space-y-2'>
           <Label htmlFor='suspend-note'>{t('admin.suspendNote')}</Label>

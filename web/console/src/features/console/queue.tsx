@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router'
 import { Ban, Check, EyeOff, Inbox, Pin, PinOff, RotateCcw, ShieldX, X } from 'lucide-react'
 import { toast } from 'sonner'
 import * as api from '@/api'
-import type { CommentStatus, ConsoleComment, ModerationAction } from '@/api'
+import type { ConsoleComment, ModerationAction, QueueStatus } from '@/api'
 import { useI18n } from '@/i18n'
 import { keys, useApiMutation, useCursorList } from '@/hooks/use-api'
 import { CursorList, EmptyState, PageHeader, Spinner } from '@/components/common'
@@ -16,7 +16,7 @@ import { BanDialog } from './ban-dialog'
 import { ConsoleCommentCard } from './comment-card'
 import { useSite } from './site-context'
 
-const TABS = ['pending', 'published', 'hidden', 'spam', 'all'] as const
+const TABS = ['pending', 'reported', 'published', 'hidden', 'spam', 'all'] as const
 type Tab = (typeof TABS)[number]
 
 /** Actions moderation.md section 2 allows from each status. */
@@ -53,7 +53,7 @@ export default function QueuePage() {
     ? (params.get('status') as Tab)
     : 'pending'
   const thread = params.get('thread') ?? ''
-  const status: CommentStatus | undefined = tab === 'all' ? undefined : tab
+  const status: QueueStatus | undefined = tab === 'all' ? undefined : tab
   const { query, items } = useCursorList(keys.siteComments(site.id, tab, thread), (cursor) =>
     api.sites.comments(site.id, { status, thread: thread || undefined }, cursor)
   )
@@ -109,6 +109,11 @@ export default function QueuePage() {
               {value === 'pending' && !!site.pending_count && (
                 <Badge variant='secondary' className='ms-1 rounded-full px-1.5'>
                   {site.pending_count}
+                </Badge>
+              )}
+              {value === 'reported' && !!site.open_reports && (
+                <Badge variant='secondary' className='ms-1 rounded-full px-1.5'>
+                  {site.open_reports}
                 </Badge>
               )}
             </TabsTrigger>
@@ -177,7 +182,7 @@ export default function QueuePage() {
         items={items}
         empty={
           <EmptyState icon={Inbox}>
-            {tab === 'pending' ? t('queue.emptyPending') : t('queue.empty')}
+            {tab === 'pending' ? t('queue.emptyPending') : tab === 'reported' ? t('queue.emptyReported') : t('queue.empty')}
           </EmptyState>
         }
       >

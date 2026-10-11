@@ -39,13 +39,16 @@ export class ApiError extends Error {
   readonly code: ErrorCode | (string & {})
   /** Seconds, from Retry-After on 429. */
   readonly retryAfter: number | null
+  /** The whole error response, for errors that carry more than the envelope. */
+  readonly body: unknown
 
-  constructor(status: number, code: string, message: string, retryAfter: number | null = null) {
+  constructor(status: number, code: string, message: string, retryAfter: number | null = null, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.retryAfter = retryAfter
+    this.body = body
   }
 }
 
@@ -90,16 +93,17 @@ function toRequest(path: string, { method = 'GET', query, body }: RequestOptions
 
 async function toError(response: Response): Promise<ApiError> {
   const retryAfter = Number(response.headers.get('Retry-After')) || null
-  let code = 'internal'
+  let code = response.status === 401 ? 'unauthorized' : 'internal'
   let message = response.statusText || `HTTP ${response.status}`
+  let body: Partial<ErrorBody> | undefined
   try {
-    const body = (await response.json()) as Partial<ErrorBody>
+    body = (await response.json()) as Partial<ErrorBody>
     if (body.error?.code) code = body.error.code
     if (body.error?.message) message = body.error.message
   } catch {
-    if (response.status === 401) code = 'unauthorized'
+    // Not JSON, as from a proxy; the status decides.
   }
-  return new ApiError(response.status, code, message, retryAfter)
+  return new ApiError(response.status, code, message, retryAfter, body)
 }
 
 async function send(path: string, options: RequestOptions): Promise<Response> {

@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import * as api from '@/api'
 import type { Notification } from '@/api'
 import { useI18n } from '@/i18n'
+import { permalink } from '@/lib/permalink'
 import { cn } from '@/lib/utils'
 import { keys, useApiMutation, useCursorList } from '@/hooks/use-api'
 import {
@@ -65,7 +66,7 @@ function NotificationItem({
             </span>
           )}
           <ExternalLink
-            href={`${item.thread.url}#kc-${item.comment.id}`}
+            href={item.comment.url ?? permalink(item.thread.url, item.comment.id)}
             className='text-foreground'
             onClick={() => unread && onRead(item.id)}
           >

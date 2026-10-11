@@ -5,6 +5,7 @@ import * as api from '@/api'
 import type { MyComment, Page, SiteRef } from '@/api'
 import { useI18n } from '@/i18n'
 import { FEATURES } from '@/lib/policy'
+import { permalink } from '@/lib/permalink'
 import { keys, useCursorList } from '@/hooks/use-api'
 import {
   CommentBody,
@@ -64,7 +65,7 @@ function CommentItem({ comment }: { comment: MyComment }) {
         <TimeAgo iso={comment.created_at} />
         {comment.edited_at && <span>{t('myComments.edited')}</span>}
         {comment.status !== 'deleted' && (
-          <ExternalLink href={`${comment.thread.url}#kc-${comment.id}`} className='ms-auto text-foreground'>
+          <ExternalLink href={comment.url ?? permalink(comment.thread.url, comment.id)} className='ms-auto text-foreground'>
             {t('myComments.view')}
           </ExternalLink>
         )}

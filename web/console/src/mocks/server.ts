@@ -15,7 +15,7 @@ import type {
   Thread,
 } from '@/api/types'
 import type { Transport } from '@/api/client'
-import type { Db, DbComment, DbSite } from './db'
+import { SITE_IDS, type Db, type DbComment, type DbSite } from './db'
 
 type Ctx = {
   db: Db
@@ -304,8 +304,10 @@ const routes: [string, string, Handler][] = [
     const email = String((ctx.body as { email?: string })?.email ?? '').trim()
     if (!/^[^@\s]+@[^@\s]+$/.test(email))
       fail(400, 'invalid_request', '邮箱格式不对。', 'That email address is not valid.')
-    ctx.db.claims.push({ id: nextId(ctx.db), token: 'demo-token', email, verified: false, done: false })
-    return empty(202)
+    const own = email.toLowerCase() === ctx.db.me.email?.toLowerCase()
+    const id = nextId(ctx.db)
+    ctx.db.claims.push({ id, token: 'demo-token', email, verified: own, done: false })
+    return json({ id, verified: own }, 202)
   }],
   ['POST', '/api/v1/me/claims/:id/verify', (ctx) => {
     requireUser(ctx)
@@ -327,7 +329,7 @@ const routes: [string, string, Handler][] = [
     const claim = ctx.db.claims.find((c) => c.id === ctx.params.id && c.verified)
     if (!claim) fail(404, 'not_found', '认领请求不存在。', 'Claim not found.')
     claim!.done = true
-    return json({ claimed: 3 })
+    return json({ claimed: claim!.email === ctx.db.me.email ? 2 : 3 })
   }],
 
   ['GET', '/api/v1/me/export', (ctx) => {
@@ -407,7 +409,8 @@ const routes: [string, string, Handler][] = [
   ['GET', '/api/v1/sites/:site', (ctx) => json(publicSite(ownSite(ctx, { allowDeleted: true })))],
   ['PATCH', '/api/v1/sites/:site', (ctx) => {
     const site = ownSite(ctx)
-    const patch = (ctx.body ?? {}) as Partial<Site>
+    const patch = (ctx.body ?? {}) as Partial<Site> & { clear_close_after_days?: boolean }
+    if (patch.clear_close_after_days) patch.close_after_days = null
     if (patch.name !== undefined && (!patch.name.trim() || patch.name.length > 100))
       fail(400, 'invalid_request', '站点名称需要 1 到 100 个字符。', 'Site names are 1 to 100 characters.')
     if (patch.guest_policy && patch.guest_policy !== 'off')
@@ -430,7 +433,7 @@ const routes: [string, string, Handler][] = [
     site.deleted_at = isoNow()
     site.purge_at = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
     ctx.db.sessions = ctx.db.sessions.filter((s) => s.site.id !== site.id)
-    return json(publicSite(site))
+    return empty()
   }],
   ['POST', '/api/v1/sites/:site/restore', (ctx) => {
     const site = ownSite(ctx, { allowDeleted: true })
@@ -494,6 +497,13 @@ const routes: [string, string, Handler][] = [
       site.status = 'pending_review'
       site.verified_at = now
     }
+    if (results.length && !results.some((r) => r.verified)) {
+      return json({
+        results,
+        site: publicSite(site),
+        error: { code: 'verification_failed', message: ctx.zh ? '没有找到验证记录。' : 'The verification record was not found.' },
+      }, 422)
+    }
     return json({ results, site: publicSite(site) })
   }],
 
@@ -501,8 +511,11 @@ const routes: [string, string, Handler][] = [
     const site = ownSite(ctx)
     const status = ctx.url.searchParams.get('status')
     const thread = ctx.url.searchParams.get('thread')
+    const reported = new Set(ctx.db.reports.filter((r) => r.status === 'open').map((r) => r.comment_id))
+    const matches = (c: DbComment) =>
+      !status || (status === 'reported' ? reported.has(c.id) : c.status === status)
     const list = ctx.db.comments
-      .filter((c) => c.site_id === site.id && (!status || c.status === status) && (!thread || c.thread_id === thread))
+      .filter((c) => c.site_id === site.id && matches(c) && (!thread || c.thread_id === thread))
       .sort(newer)
       .map((c) => consoleComment(ctx.db, c))
     return json(paginate(list, ctx.url, 20, 50))
@@ -534,13 +547,15 @@ const routes: [string, string, Handler][] = [
     const site = ownSite(ctx)
     const t = ctx.db.threads.find((x) => x.id === ctx.params.thread && x.site_id === site.id)
     if (!t) fail(404, 'not_found', '讨论页不存在。', 'Thread not found.')
-    const patch = (ctx.body ?? {}) as Partial<Thread>
-    if (patch.url !== undefined && !/^https:\/\//.test(patch.url))
-      fail(400, 'invalid_request', '地址要以 https:// 开头。', 'Addresses start with https://.')
+    const patch = (ctx.body ?? {}) as Partial<Thread> & { published_at?: string; clear_published_at?: boolean }
+    if (patch.url !== undefined && !site.origins.some((o) => o.verified_at && patch.url!.startsWith(`${o.origin}/`)))
+      fail(400, 'origin_not_allowed', '地址不属于这个站点。', 'That address does not belong to this site.')
+    if (patch.clear_published_at) t!.page_published_at = null
+    else if (patch.published_at) t!.page_published_at = new Date(patch.published_at).toISOString()
     if (patch.locked !== undefined && patch.locked !== t!.locked) {
       ctx.db.events.push({ id: nextId(ctx.db), site_id: site.id, action: patch.locked ? 'lock' : 'unlock', actor: { name: ctx.db.me.display_name }, comment_id: null, detail: { thread_id: t!.id }, created_at: isoNow() })
     }
-    for (const key of ['locked', 'title', 'url', 'page_published_at'] as const) {
+    for (const key of ['locked', 'title', 'url'] as const) {
       if (key in patch) (t as Record<string, unknown>)[key] = patch[key]
     }
     return json(threadOut(t!))
@@ -553,6 +568,7 @@ const routes: [string, string, Handler][] = [
     if (!/^[kph]:.+/.test(toKey))
       fail(400, 'invalid_request', '标识要以 k:、p: 或 h: 开头。', 'Keys start with k:, p: or h:.')
     if (toKey === t!.key) fail(400, 'invalid_request', '目标标识和当前相同。', 'That is the current key.')
+    const fromKey = t!.key
     const target = ctx.db.threads.find((x) => x.site_id === site.id && x.key === toKey)
     const moving = ctx.db.comments.filter((c) => c.thread_id === t!.id)
     let result = t!
@@ -564,7 +580,7 @@ const routes: [string, string, Handler][] = [
     } else {
       t!.key = toKey
     }
-    ctx.db.events.push({ id: nextId(ctx.db), site_id: site.id, action: 'move_thread', actor: { name: ctx.db.me.display_name }, comment_id: null, detail: { from: t!.key, to: toKey, comments: moving.map((c) => c.id) }, created_at: isoNow() })
+    ctx.db.events.push({ id: nextId(ctx.db), site_id: site.id, action: 'move_thread', actor: { name: ctx.db.me.display_name }, comment_id: null, detail: { from: fromKey, to: toKey, comments: moving.map((c) => c.id) }, created_at: isoNow() })
     return json({ thread: threadOut(result), moved: moving.length, merged: !!target })
   }],
 
@@ -580,30 +596,32 @@ const routes: [string, string, Handler][] = [
     if ('comment_id' in input) {
       const c = ctx.db.comments.find((x) => x.id === input.comment_id && x.site_id === site.id)
       if (!c) fail(404, 'not_found', '评论不存在。', 'Comment not found.')
-      if (input.target === 'email' && !c!.author.email)
+      if (input.kind === 'email' && !c!.author.email)
         fail(400, 'invalid_request', '这条评论没有访客邮箱。', 'This comment has no guest email.')
-      if (input.target === 'user' && c!.author.kind !== 'user')
+      if (input.kind === 'user' && c!.author.kind !== 'user')
         fail(400, 'invalid_request', '这条评论不是登录读者发的。', 'This comment is not from a signed-in reader.')
-      label = input.target === 'ip' ? (ctx.zh ? `评论 #${c!.id} 的 IP` : `IP of comment #${c!.id}`) : input.target === 'email' ? c!.author.email! : c!.author.name
-    } else if (input.target === 'email' && 'email' in input) {
+      label = input.kind === 'ip' ? (ctx.zh ? `评论 #${c!.id} 的 IP` : `IP of comment #${c!.id}`) : input.kind === 'email' ? c!.author.email! : c!.author.name
+    } else if (input.kind === 'email' && 'email' in input) {
       if (!/^[^@\s]+@[^@\s]+$/.test(input.email))
         fail(400, 'invalid_request', '邮箱格式不对。', 'That email address is not valid.')
       label = input.email.trim().toLowerCase()
     } else {
       fail(400, 'invalid_request', '请求参数不对。', 'Invalid request.')
     }
+    const days = input.days ?? 0
+    if (!Number.isInteger(days) || days < 0 || days > 3650) fail(400, 'invalid_request', '期限不对。', 'Invalid duration.')
     const ban: Ban = {
       id: nextId(ctx.db),
-      target: input.target,
+      target: input.kind,
       label,
       reason: input.reason ?? '',
       created_at: isoNow(),
-      expires_at: input.expires_at ?? null,
+      expires_at: days ? new Date(Date.now() + days * 86_400_000).toISOString() : null,
       site_id: site.id,
     }
     ctx.db.bans.push(ban)
     ctx.db.events.push({ id: nextId(ctx.db), site_id: site.id, action: 'ban', actor: { name: ctx.db.me.display_name }, comment_id: 'comment_id' in input ? input.comment_id : null, detail: { target: ban.target, ban_id: ban.id }, created_at: ban.created_at })
-    return json(ban, 201)
+    return json({ id: ban.id }, 201)
   }],
   ['DELETE', '/api/v1/sites/:site/bans/:id', (ctx) => {
     const site = ownSite(ctx)
@@ -635,12 +653,18 @@ const routes: [string, string, Handler][] = [
     const site = ownSite(ctx)
     const r = ctx.db.reports.find((x) => x.id === ctx.params.id && x.site_id === site.id)
     if (!r) fail(404, 'not_found', '举报不存在。', 'Report not found.')
-    const status = (ctx.body as { status?: string })?.status
-    if (status !== 'resolved' && status !== 'dismissed')
+    const { status, action } = (ctx.body ?? {}) as { status?: string; action?: string }
+    if ((status !== 'resolved' && status !== 'dismissed') || (action && action !== 'hide' && action !== 'spam'))
       fail(400, 'invalid_request', '请求参数不对。', 'Invalid request.')
     r!.status = status as 'resolved' | 'dismissed'
     r!.resolved_at = isoNow()
-    return json({ ...r, comment: consoleComment(ctx.db, ctx.db.comments.find((c) => c.id === r!.comment_id)!) })
+    if (action) {
+      const c = ctx.db.comments.find((x) => x.id === r!.comment_id)!
+      MODERATION[action as 'hide' | 'spam'](c)
+      recount(ctx.db, c.thread_id)
+      ctx.db.events.push({ id: nextId(ctx.db), site_id: site.id, action: action as 'hide' | 'spam', actor: { name: ctx.db.me.display_name }, comment_id: c.id, detail: { report_id: r!.id }, created_at: isoNow() })
+    }
+    return empty()
   }],
 
   ['GET', '/api/v1/sites/:site/events', (ctx) => {
@@ -689,21 +713,70 @@ const routes: [string, string, Handler][] = [
       }))
     return json(paginate(list, ctx.url, 30, 100))
   }],
-  ['PATCH', '/api/v1/admin/sites/:site', (ctx) => {
+  ['POST', '/api/v1/admin/sites/:site/:action', (ctx) => {
     requireUser(ctx)
     if (!ctx.db.me.is_platform_admin) fail(403, 'forbidden', '没有权限。', 'Not allowed.')
     const site = ctx.db.sites.find((s) => s.id === ctx.params.site)
     if (!site) fail(404, 'not_found', '站点不存在。', 'Site not found.')
-    const { status, status_note } = (ctx.body ?? {}) as { status?: string; status_note?: string }
-    if (status !== 'active' && status !== 'suspended')
-      fail(400, 'invalid_request', '请求参数不对。', 'Invalid request.')
-    if (status === 'active' && !site!.verified_at)
-      fail(409, 'conflict', '站点还没有通过验证。', 'The site has no verified origin yet.')
-    site!.status = status as 'active' | 'suspended'
-    site!.status_note = status === 'suspended' ? (status_note ?? null) : null
-    if (status === 'active' && !site!.approved_at) site!.approved_at = isoNow()
-    return json({ id: site!.id, name: site!.name, status: site!.status, status_note: site!.status_note, origins: site!.origins, owner: { id: '', display_name: site!.owner_name }, created_at: site!.created_at, verified_at: site!.verified_at })
+    const note = String((ctx.body as { note?: string } | undefined)?.note ?? '').trim()
+    switch (ctx.params.action) {
+      case 'approve':
+        if (!site!.verified_at) fail(409, 'conflict', '站点还没有通过验证。', 'The site has no verified origin yet.')
+        site!.status = 'active'
+        site!.approved_at ??= isoNow()
+        break
+      case 'suspend':
+        site!.status = 'suspended'
+        site!.status_note = note || null
+        ctx.db.events.push({ id: nextId(ctx.db), site_id: site!.id, action: 'platform_suspend_site', actor: { name: ctx.db.me.display_name }, comment_id: null, detail: { note }, created_at: isoNow() })
+        break
+      case 'unsuspend':
+        site!.status = site!.approved_at ? 'active' : 'pending_review'
+        site!.status_note = null
+        break
+      default:
+        fail(404, 'not_found', '接口不存在。', 'No such endpoint.')
+    }
+    return json(publicSite(site!))
   }],
+
+  ['POST', '/api/v1/sites/:site/events/:id/undo', (ctx) => {
+    const site = ownSite(ctx)
+    const event = ctx.db.events.find((e) => e.id === ctx.params.id && e.site_id === site.id)
+    if (!event || event.action !== 'move_thread') fail(404, 'not_found', '记录不存在。', 'Event not found.')
+    const detail = event!.detail as { from: string; to: string; comments: string[]; thread_id: string }
+    const target = ctx.db.threads.find((t) => t.site_id === site.id && t.key === detail.to)!
+    let original = ctx.db.threads.find((t) => t.site_id === site.id && t.key === detail.from)
+    if (!original) {
+      original = { ...target, id: nextId(ctx.db), key: detail.from }
+      ctx.db.threads.push(original)
+    }
+    for (const c of ctx.db.comments) if (detail.comments.includes(c.id)) c.thread_id = original.id
+    recount(ctx.db, original.id)
+    recount(ctx.db, target.id)
+    ctx.db.events = ctx.db.events.filter((e) => e !== event)
+    return empty()
+  }],
+
+  ['GET', '/api/v1/me/mutes', (ctx) => {
+    requireUser(ctx)
+    const muted = new Set(ctx.db.notifications.filter((n) => n.thread.muted).map((n) => n.thread.id))
+    return json({ data: [...muted] })
+  }],
+
+  ['GET', '/api/v1/me/claims/suggestion', (ctx) => {
+    requireUser(ctx)
+    if (ctx.db.claims.some((c) => c.done && c.email === ctx.db.me.email)) return json({ count: 0, sites: [] })
+    return json({ count: 2, sites: [{ id: SITE_IDS.lin, name: "Lin's Tech Notes", count: 2 }] })
+  }],
+
+  ['GET', '/api/v1/embed-info', () =>
+    json({
+      version: '1.0.0',
+      script_url: `${location.origin}/embed.js`,
+      pinned_url: `${location.origin}/embed/v1.0.0.js`,
+      integrity: 'sha384-mockmockmockmockmockmockmockmockmockmockmockmockmockmockmockmock',
+    })],
 ]
 
 const compiled = routes.map(([method, pattern, handler]) => {

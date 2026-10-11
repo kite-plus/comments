@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { ArrowRight, Clock, Flag, Inbox, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react'
@@ -19,8 +20,11 @@ function serviceOrigin() {
   return window.location.origin
 }
 
-export function embedSnippet(siteId: string, extra = '') {
-  return `<kite-comments site="${siteId}"${extra}></kite-comments>\n<script src="${serviceOrigin()}/embed.js" crossorigin="anonymous" async></script>`
+export function embedSnippet(siteId: string, extra = '', script?: { src: string; integrity: string }) {
+  const tag = script
+    ? `<script src="${script.src}" integrity="${script.integrity}" crossorigin="anonymous" async></script>`
+    : `<script src="${serviceOrigin()}/embed.js" crossorigin="anonymous" async></script>`
+  return `<kite-comments site="${siteId}"${extra}></kite-comments>\n${tag}`
 }
 
 function StatusPanel({ summary, site }: { summary: SiteSummary; site?: Site }) {
@@ -158,6 +162,12 @@ export default function OverviewPage() {
   const detail = useSiteDetail(summary.id, owner)
   const base = `/console/sites/${summary.id}`
   const embeddable = summary.status === 'active' || summary.status === 'pending_review'
+  const embed = useQuery({
+    queryKey: ['embed-info'],
+    queryFn: api.embedInfo,
+    staleTime: Infinity,
+    enabled: embeddable,
+  })
 
   return (
     <>
@@ -191,6 +201,7 @@ export default function OverviewPage() {
                 <TabsTrigger value='generic'>{t('overview.embedGeneric')}</TabsTrigger>
                 <TabsTrigger value='kite'>Kite</TabsTrigger>
                 <TabsTrigger value='spa'>{t('overview.embedSpa')}</TabsTrigger>
+                {embed.data && <TabsTrigger value='pinned'>{t('overview.embedPinned')}</TabsTrigger>}
               </TabsList>
               <TabsContent value='generic' className='space-y-3 pt-2'>
                 <p className='text-sm text-muted-foreground'>{t('overview.embedGenericDesc')}</p>
@@ -208,6 +219,20 @@ export default function OverviewPage() {
                  
                 />
               </TabsContent>
+              {embed.data && (
+                <TabsContent value='pinned' className='space-y-3 pt-2'>
+                  <p className='text-sm text-muted-foreground'>
+                    {t('overview.embedPinnedDesc', { version: embed.data.version })}
+                  </p>
+                  <CopyField
+                    label={t('overview.embedCode')}
+                    value={embedSnippet(summary.id, '', {
+                      src: embed.data.pinned_url,
+                      integrity: embed.data.integrity,
+                    })}
+                  />
+                </TabsContent>
+              )}
             </Tabs>
           </Section>
         )}

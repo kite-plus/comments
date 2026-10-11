@@ -1,9 +1,13 @@
-import { Bot, History, ShieldCheck, UserRound } from 'lucide-react'
+import { useState } from 'react'
+import { Bot, History, ShieldCheck, Undo2, UserRound } from 'lucide-react'
+import { toast } from 'sonner'
 import * as api from '@/api'
 import type { ModerationEvent } from '@/api'
 import { useI18n, type MessageKey } from '@/i18n'
-import { keys, useCursorList } from '@/hooks/use-api'
+import { keys, useApiMutation, useCursorList } from '@/hooks/use-api'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { CursorList, EmptyState, PageHeader, TimeAgo } from '@/components/common'
+import { Button } from '@/components/ui/button'
 import { NotFound } from '@/features/errors'
 import { useSite } from './site-context'
 
@@ -34,6 +38,14 @@ export default function EventsPage() {
   const { t } = useI18n()
   const site = useSite()
   const { query, items } = useCursorList(keys.events(site.id), (cursor) => api.sites.events(site.id, cursor))
+  const [undoing, setUndoing] = useState<ModerationEvent | null>(null)
+  const undo = useApiMutation((event: ModerationEvent) => api.sites.undoEvent(site.id, event.id), {
+    invalidate: [keys.site(site.id)],
+    onSuccess: () => {
+      setUndoing(null)
+      toast.success(t('events.undone'))
+    },
+  })
   if (site.status === 'deleted') return <NotFound />
   return (
     <>
@@ -59,13 +71,29 @@ export default function EventsPage() {
                     <p className='font-mono text-xs break-all text-muted-foreground'>{detailText(event, t)}</p>
                   )}
                 </div>
-                <TimeAgo iso={event.created_at} className='shrink-0 text-xs text-muted-foreground' />
+                <div className='flex shrink-0 flex-col items-end gap-1'>
+                  <TimeAgo iso={event.created_at} className='text-xs text-muted-foreground' />
+                  {event.action === 'move_thread' && site.role === 'owner' && (
+                    <Button size='sm' variant='outline' onClick={() => setUndoing(event)}>
+                      <Undo2 />
+                      {t('events.undo')}
+                    </Button>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
         )}
       </CursorList>
-      <p className='mt-4 text-sm text-muted-foreground'>{t('events.undoNote')}</p>
+      <ConfirmDialog
+        open={!!undoing}
+        onOpenChange={(open) => !open && setUndoing(null)}
+        title={t('events.undoTitle')}
+        description={t('events.undoDesc')}
+        confirmText={t('events.undo')}
+        isLoading={undo.isPending}
+        onConfirm={() => undoing && undo.mutate(undoing)}
+      />
     </>
   )
 }

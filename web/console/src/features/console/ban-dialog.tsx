@@ -29,9 +29,9 @@ import { Textarea } from '@/components/ui/textarea'
 export const BAN_DURATIONS = ['forever', '1', '7', '30', '365'] as const
 export type BanDuration = (typeof BAN_DURATIONS)[number]
 
-export function expiresAt(duration: BanDuration): string | null {
-  if (duration === 'forever') return null
-  return new Date(Date.now() + Number(duration) * 86_400_000).toISOString()
+/** Days for the API; 0 means the ban does not expire. */
+export function banDays(duration: BanDuration): number {
+  return duration === 'forever' ? 0 : Number(duration)
 }
 
 export function DurationSelect({
@@ -96,10 +96,10 @@ export function BanDialog({
   const ban = useApiMutation(
     async (c: ConsoleComment) => {
       await api.sites.ban(siteId, {
-        target: chosen,
+        kind: chosen,
         comment_id: c.id,
         reason: reason.trim() || undefined,
-        expires_at: expiresAt(duration),
+        days: banDays(duration),
       })
       if (alsoHide && c.status !== 'hidden' && c.status !== 'spam' && c.status !== 'deleted') {
         await api.sites.moderate(siteId, [c.id], 'hide')
