@@ -433,7 +433,7 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 		} else {
 			unsub = mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubGuest+":"+hex.EncodeToString(w.Keys.EmailHMAC(to)))
 		}
-		return mailer.Replies(locale, to, items, unsub), after, nil
+		return mailer.Replies(base, locale, to, items, unsub), after, nil
 	case "owner", "digest":
 		p := ps[0]
 		site, err := w.Store.SiteByID(ctx, p.SiteID)
@@ -455,7 +455,7 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 			return mailer.Message{}, nil, errNothing
 		}
 		unsub := mailer.UnsubscribeURL(base, w.Keys, fmt.Sprintf("%s:%d:%d", mailer.UnsubOwner, site.ID, p.UserID))
-		return mailer.Owner(locale, to, site.Name, items, len(p.CommentIDs), base+"/console/sites/"+site.PublicID+"/comments", unsub,
+		return mailer.Owner(base, locale, to, site.Name, items, len(p.CommentIDs), base+"/console/sites/"+site.PublicID+"/comments", unsub,
 			first.Kind == "digest"), nil, nil
 	case "report":
 		p := ps[0]
@@ -478,10 +478,10 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 		if err != nil {
 			return mailer.Message{}, nil, errNothing
 		}
-		return mailer.Report(locale, to, site.Name, reason, items[0], base+"/console/sites/"+site.PublicID+"/reports"), nil, nil
+		return mailer.Report(base, locale, to, site.Name, reason, items[0], base+"/console/sites/"+site.PublicID+"/reports"), nil, nil
 	case "claim":
 		p := ps[0]
-		return mailer.Claim(locale, to, fmt.Sprintf("%s/me/claims/%d?t=%s", base, p.ClaimID, p.Token)), nil, nil
+		return mailer.Claim(base, locale, to, fmt.Sprintf("%s/me/claims/%d?t=%s", base, p.ClaimID, p.Token)), nil, nil
 	case "guest_confirm":
 		p := ps[0]
 		name := ""
@@ -489,14 +489,14 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 			name = site.Name
 		}
 		unsub := mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubGuest+":"+hex.EncodeToString(w.Keys.EmailHMAC(to)))
-		return mailer.GuestConfirm(locale, to, name, base+"/guest-email/confirm?t="+p.Token, unsub), nil, nil
+		return mailer.GuestConfirm(base, locale, to, name, base+"/guest-email/confirm?t="+p.Token, unsub), nil, nil
 	case "recheck":
 		p := ps[0]
 		site, err := w.Store.SiteByID(ctx, p.SiteID)
 		if err != nil {
 			return mailer.Message{}, nil, errNothing
 		}
-		return mailer.Recheck(locale, to, site.Name, p.Origin, p.Detail, p.Dropped, base+"/console/sites/"+site.PublicID), nil, nil
+		return mailer.Recheck(base, locale, to, site.Name, p.Origin, p.Detail, p.Dropped, base+"/console/sites/"+site.PublicID), nil, nil
 	}
 	return mailer.Message{}, nil, fmt.Errorf("unknown mail kind %q", first.Kind)
 }

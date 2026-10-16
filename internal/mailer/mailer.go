@@ -1,7 +1,8 @@
 // Package mailer builds and sends the service's mail (docs/design/
 // moderation.md section 6): reply and owner notifications, confirmation and
-// claim mail, in Chinese and English, plain text with a simple HTML part,
-// with RFC 8058 one-click unsubscribe headers and no tracking.
+// claim mail, in Chinese and English, plain text with an HTML part whose
+// images travel inline, with RFC 8058 one-click unsubscribe headers and no
+// tracking.
 package mailer
 
 import (
@@ -9,15 +10,21 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -133,9 +140,18 @@ func (s *Sender) helloName() string {
 	return "localhost"
 }
 
+// The images mail.html shows as cid:<name>@kite.plus travel inside the
+// message, so opening it fetches nothing and no inbox blocks them.
+//
+//go:embed img/*.png
+var images embed.FS
+
 func (s *Sender) compose(from *mail.Address, m Message) ([]byte, error) {
+	if strings.ContainsAny(m.To, "\r\n") {
+		return nil, errors.New("bad recipient")
+	}
 	var b bytes.Buffer
-	boundary := randomHex(12)
+	alt := multipart.NewWriter(&b)
 	h := func(k, v string) { fmt.Fprintf(&b, "%s: %s\r\n", k, v) }
 	h("From", (&mail.Address{Name: from.Name, Address: from.Address}).String())
 	h("To", m.To)
@@ -148,24 +164,90 @@ func (s *Sender) compose(from *mail.Address, m Message) ([]byte, error) {
 		h("List-Unsubscribe", "<"+m.Unsubscribe+">")
 		h("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
 	}
-	h("Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
+	h("Content-Type", `multipart/alternative; boundary="`+alt.Boundary()+`"`)
 	b.WriteString("\r\n")
-	for _, part := range []struct{ ct, body string }{{"text/plain", m.Text}, {"text/html", m.HTML}} {
-		if part.body == "" {
-			continue
-		}
-		fmt.Fprintf(&b, "--%s\r\nContent-Type: %s; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n", boundary, part.ct)
-		qp := quotedprintable.NewWriter(&b)
-		if _, err := qp.Write([]byte(strings.ReplaceAll(part.body, "\n", "\r\n"))); err != nil {
-			return nil, err
-		}
-		if err := qp.Close(); err != nil {
-			return nil, err
-		}
-		b.WriteString("\r\n")
+	if err := textPart(alt, "text/plain", m.Text); err != nil {
+		return nil, err
 	}
-	fmt.Fprintf(&b, "--%s--\r\n", boundary)
+	if m.HTML != "" {
+		relBoundary := randomHex(15)
+		pw, err := alt.CreatePart(textproto.MIMEHeader{"Content-Type": {`multipart/related; type="text/html"; boundary="` + relBoundary + `"`}})
+		if err != nil {
+			return nil, err
+		}
+		rel := multipart.NewWriter(pw)
+		if err := rel.SetBoundary(relBoundary); err != nil {
+			return nil, err
+		}
+		if err := textPart(rel, "text/html", m.HTML); err != nil {
+			return nil, err
+		}
+		if err := imageParts(rel); err != nil {
+			return nil, err
+		}
+		if err := rel.Close(); err != nil {
+			return nil, err
+		}
+	}
+	if err := alt.Close(); err != nil {
+		return nil, err
+	}
 	return b.Bytes(), nil
+}
+
+func textPart(w *multipart.Writer, ct, body string) error {
+	pw, err := w.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {ct + "; charset=UTF-8"},
+		"Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return err
+	}
+	qp := quotedprintable.NewWriter(pw)
+	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
+		return err
+	}
+	return qp.Close()
+}
+
+func imageParts(w *multipart.Writer) error {
+	names, err := images.ReadDir("img")
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		data, err := images.ReadFile("img/" + n.Name())
+		if err != nil {
+			return err
+		}
+		id := strings.TrimSuffix(n.Name(), path.Ext(n.Name()))
+		pw, err := w.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {`image/png; name="` + n.Name() + `"`},
+			"Content-Transfer-Encoding": {"base64"},
+			"Content-ID":                {"<" + id + "@kite.plus>"},
+			"Content-Disposition":       {`inline; filename="` + n.Name() + `"`},
+		})
+		if err != nil {
+			return err
+		}
+		if err := writeBase64(pw, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeBase64 wraps at 76 columns as RFC 2045 requires.
+func writeBase64(w io.Writer, data []byte) error {
+	enc := base64.StdEncoding.EncodeToString(data)
+	for len(enc) > 76 {
+		if _, err := io.WriteString(w, enc[:76]+"\r\n"); err != nil {
+			return err
+		}
+		enc = enc[76:]
+	}
+	_, err := io.WriteString(w, enc+"\r\n")
+	return err
 }
 
 func randomHex(n int) string {

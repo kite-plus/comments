@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>{{.Subject}}</title>
+<style>
+@media (max-width:620px){.wrap{padding:20px 10px 28px!important}.card{padding:28px 22px 24px!important}.heading{font-size:22px!important}.tie{width:104px!important;height:auto!important}}
+</style>
+</head>
+<body style="margin:0;padding:0;background:#f5f1e8">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">{{.Preview}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f5f1e8" style="background:#f5f1e8">
+<tr><td align="center" class="wrap" style="padding:32px 16px 40px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px">
+<tr><td>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td valign="bottom" style="padding:0 0 16px 4px;white-space:nowrap">
+<a href="{{.SiteURL}}" style="text-decoration:none;color:#1f1c17"><img src="cid:kite-mark@kite.plus" width="22" height="22" alt="" style="vertical-align:-5px;border:0"><span style="font:700 18px/1 'Noto Serif SC','Songti SC','STSong','SimSun',Georgia,serif;color:#1f1c17;margin-left:7px">Kite Plus</span><span style="font:14px/1 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#cfc3ad;margin:0 9px">|</span><span style="font:14px/1 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#675f53">{{.Service}}</span></a>
+</td>
+<td align="right" valign="bottom" width="132" style="line-height:0"><img class="tie" src="cid:kite-tie@kite.plus" width="132" height="88" alt="" style="display:block;border:0"></td>
+</tr></table>
+</td></tr>
+<tr><td class="card" bgcolor="#fffdf8" style="background:#fffdf8;border:1px solid #ded4c1;border-radius:12px;padding:34px 36px 30px">
+{{- if .Eyebrow}}
+<p style="margin:0 0 16px;font:500 12px/1.4 Menlo,Consolas,'SFMono-Regular',monospace;letter-spacing:2px;color:#b3432d"><span style="display:inline-block;width:18px;height:0;border-top:1px solid #b3432d;vertical-align:middle;margin-right:10px"></span>{{.Eyebrow}}</p>
+{{- end}}
+<h1 class="heading" style="margin:0 0 18px;font:700 26px/1.35 'Noto Serif SC','Songti SC','STSong','SimSun',Georgia,serif;color:#1f1c17">{{.Heading}}</h1>
+{{- range .Paragraphs}}
+<p style="margin:0 0 10px;font:15px/1.85 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#3f3a33">{{.}}</p>
+{{- end}}
+{{- range .Cards}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:18px 0 0">
+<tr><td style="padding:14px 16px;border-left:3px solid #b3432d;background:#f5f1e8;border-radius:0 10px 10px 0">
+<div style="font:600 13.5px/1.5 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#675f53">{{.Author}}{{if .Meta}}<span style="font-weight:400;color:#9a9081"> · {{.Meta}}</span>{{end}}</div>
+<div style="margin-top:6px;font:15px/1.8 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#1f1c17">{{.Excerpt}}</div>
+{{- if .ViewURL}}
+<div style="margin-top:8px;font:12.5px/1.7 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081"><a href="{{.ViewURL}}" style="color:#3a66c4;text-decoration:none">{{.ViewLabel}}&nbsp;&rarr;</a>{{if .MuteURL}}&nbsp;&nbsp;·&nbsp;&nbsp;<a href="{{.MuteURL}}" style="color:#9a9081;text-decoration:underline">{{.MuteLabel}}</a>{{end}}</div>
+{{- end}}
+</td></tr></table>
+{{- end}}
+{{- if .More}}
+<p style="margin:14px 0 0;font:13px/1.75 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081">{{.More}}</p>
+{{- end}}
+{{- if .URL}}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 0">
+<tr><td bgcolor="#1f1c17" style="border-radius:9px;background:#1f1c17">
+<a href="{{.URL}}" style="display:inline-block;padding:13px 26px;font:600 15px/1.2 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#fffdf8;text-decoration:none;border-radius:9px">{{.Button}}&nbsp;&nbsp;&rarr;</a>
+</td></tr></table>
+{{- if .MuteURL}}
+<p style="margin:14px 0 0;font:12.5px/1.7 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081"><a href="{{.MuteURL}}" style="color:#9a9081;text-decoration:underline">{{.MuteLabel}}</a></p>
+{{- end}}
+{{- if .FallbackLabel}}
+<p style="margin:22px 0 0;font:12.5px/1.7 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081">{{.FallbackLabel}}<br><a href="{{.URL}}" style="color:#3a66c4;word-break:break-all">{{.URL}}</a></p>
+{{- end}}
+{{- end}}
+{{- if .Note}}
+<p style="margin:26px 0 0;padding-top:18px;border-top:1px dashed #c9bca3;font:13px/1.75 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081">{{.Note}}</p>
+{{- end}}
+</td></tr>
+<tr><td align="center" style="padding:22px 12px 0;font:12.5px/1.8 -apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#9a9081">
+{{.Tagline}}<br>
+<a href="{{.SiteURL}}" style="color:#675f53;text-decoration:none">Kite Plus {{.Service}} · {{.Site}}</a>
+{{- if .Unsubscribe}}<br><a href="{{.Unsubscribe}}" style="color:#9a9081;text-decoration:underline">{{.UnsubscribeLabel}}</a>{{end}}
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
