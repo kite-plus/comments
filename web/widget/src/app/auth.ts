@@ -32,6 +32,7 @@ const TX_TTL = 30 * 60 * 1000;
 
 export class Login {
   private pair?: Pair;
+  private preparing: Promise<void>;
   private popup: Window | null = null;
   private verifier?: string;
   private started = 0;
@@ -41,7 +42,7 @@ export class Login {
   private stopped = true;
 
   constructor(private o: LoginOptions) {
-    void this.prepare();
+    this.preparing = this.prepare();
     addEventListener("message", (e) => this.message(e));
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && !this.stopped) this.poll(0);
@@ -54,7 +55,6 @@ export class Login {
 
   /** Starts sign-in; must run in the click handler's synchronous part. */
   start() {
-    if (!this.pair) return;
     if (inAppBrowser(navigator.userAgent)) return this.redirect();
     this.begun = false;
     // A fresh name each time, so no other page can guess and target it.
@@ -70,20 +70,27 @@ export class Login {
   private message(e: MessageEvent) {
     const d = e.data;
     if (!this.popup || e.source !== this.popup || e.origin !== this.o.origin || !d || d.kc !== KC) return;
-    if (d.type === "ready" && !this.begun && this.pair) {
+    if (d.type === "ready" && !this.begun) {
       this.begun = true;
       clearTimeout(this.readyTimer);
-      const p = this.pair;
-      this.popup.postMessage({ kc: KC, type: "begin", site: this.o.site, challenge: p.challenge }, this.o.origin);
-      this.verifier = p.verifier;
-      this.pair = undefined;
-      void this.prepare();
-      this.started = Date.now();
-      this.stopped = false;
-      this.poll(1000);
+      void this.begin(this.popup);
     } else if (d.type === "done") {
       this.poll(0);
     }
+  }
+
+  // A click right after load can open the popup before the pair is ready.
+  private async begin(popup: Window) {
+    if (!this.pair) await this.preparing;
+    const p = this.pair;
+    if (!p) return;
+    popup.postMessage({ kc: KC, type: "begin", site: this.o.site, challenge: p.challenge }, this.o.origin);
+    this.verifier = p.verifier;
+    this.pair = undefined;
+    this.preparing = this.prepare();
+    this.started = Date.now();
+    this.stopped = false;
+    this.poll(1000);
   }
 
   /** The fallback: the widget submits a top-level form (login.md 4.4). */

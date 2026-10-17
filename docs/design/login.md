@@ -85,7 +85,7 @@ P → W   postMessage done（opener 还在的话），随后关闭弹窗
 W → C   POST /api/v1/widget/sessions {site, verifier} → 签发站点会话
 ```
 
-1. **预先生成**：W 加载时就生成 verifier 并算好 challenge。`crypto.subtle.digest` 是异步的；等到点击后再算，`window.open` 就不在用户手势的同步调用栈里了，Safari 会拦截弹窗。每用掉一对（发出 `begin`，或发起整页跳转）就立刻生成下一对，重试不会撞上同一个 challenge。
+1. **预先生成**：W 加载时就生成 verifier 并算好 challenge。`crypto.subtle.digest` 是异步的；等到点击后再算，`window.open` 就不在用户手势的同步调用栈里了，Safari 会拦截弹窗。每用掉一对（发出 `begin`，或发起整页跳转）就立刻生成下一对，重试不会撞上同一个 challenge。读者在加载后极短时间内就点了登录、这一对还没算好时，弹窗照样同步打开，W 等 P 发来 `ready` 时再等这一对算完、发出 `begin`（2026-10-16 改：以前这次点击会被悄悄忽略）。
 2. **打开弹窗**：点击时同步调用 `window.open("https://comments.kite.plus/auth/popup", "kc-login-<随机>", "popup,width=480,height=720")`。窗口名每次随机生成（2026-10 改）：固定的名字谁都知道，别的页面可以用同名的 `window.open` 或 `target` 把读者的登录窗口换成自己的页面，或者抢先开一个同名窗口等着被复用。返回 `null` 有两种可能：弹窗被拦截；或者宿主页设了 `COOP: same-origin`，弹窗其实打开了，只是没有 opener。两种情况 W 都走 §4.4；P 发现自己没有 opener 时，提示读者关掉这个窗口、回到文章里继续。
 3. **握手**：P 加载后向 `window.opener` 发 `ready`，目标 origin 写死为 `https://comments.kite.plus`。W 只接受 `event.source` 是自己打开的那个窗口、且 `event.origin` 为 `https://comments.kite.plus` 的 `ready`，然后回复 `begin {site, challenge}`。P 只接受来自 `window.opener`、origin 为 `https://comments.kite.plus` 的 `begin`。W 转入整页跳转后，再收到的 `ready` 一律忽略。P 页面不设置 COOP，否则握手之前 opener 就断了。
 4. **建交易**：P 用 `fetch` 调用 `POST /auth/transactions {site, challenge}`。C 只接受自己页面发来的 JSON：`Origin` 必须是 `https://comments.kite.plus`；有 `Sec-Fetch-Site` 时必须是 `same-origin`；`Sec-Fetch-Mode` 不能是 `navigate`；`Content-Type` 必须是 `application/json`；响应只返回 JSON，从不跳转。所以跨站页面没法在读者的浏览器里用自己的 challenge 建交易。然后 C 检查站点是 `active`；浏览器里没有 binder Cookie 就新建一个，有就沿用并续期；生成随机的 `state`、`nonce` 和 PKCE，写入 `login_transactions`（模式 `popup`，有效期见 §4.5），返回授权地址，P 跳过去。
