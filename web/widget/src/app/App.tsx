@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { ApiError, call, guestToken, q, read, setToken, storage, type Comment, type Page, type Viewer } from "./api";
+import { ApiError, call, q, read, setToken, storage, type Comment, type Page, type Viewer } from "./api";
 import { Login, type LoginState } from "./auth";
 import { relative, strings, type Strings } from "./i18n";
 import { KC } from "../lib";
-import { solve, type Challenge } from "./pow";
 
 export interface Data {
   v: number;
@@ -37,12 +36,12 @@ export interface Data {
 const tt = (window as unknown as { trustedTypes?: { createPolicy(n: string, p: object): { createHTML(s: string): string } } })
   .trustedTypes?.createPolicy("kc", { createHTML: (s: string) => s });
 
-function Html({ html, class: cls }: { html: string; class?: string }) {
+function Html({ html, class: cls, empty }: { html: string; class?: string; empty?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = (tt ? tt.createHTML(html) : html) as string;
   }, [html]);
-  return <div class={cls} ref={ref} />;
+  return <div class={cls} ref={ref} data-empty={empty} />;
 }
 
 function post(msg: object) {
@@ -191,7 +190,7 @@ export function App({ d }: { d: Data }) {
     <Frame s={s} d={d}>
       <header class="kc-head">
         <strong>{s.comments(page.count)}</strong>
-        <span class="kc-sort" role="group">
+        <span class={"kc-sort" + (newest ? " kc-newest" : "")} role="group">
           {[false, true].map((n) => (
             <button
               type="button"
@@ -208,13 +207,13 @@ export function App({ d }: { d: Data }) {
         </span>
       </header>
       {d.mode === "preview" ? (
-        <p class="kc-state kc-box">{s.preview_mode}</p>
+        <p class="kc-state kc-box kc-closed">{s.preview_mode}</p>
       ) : !writable ? (
-        <p class="kc-state kc-box">{s.closed}</p>
+        <p class="kc-state kc-box kc-closed">{s.closed}</p>
       ) : viewer ? (
         <Composer ctx={ctx} onDone={added} viewer={viewer} onSignOut={signOut} />
       ) : (
-        <SignedOut ctx={ctx} login={login} state={loginState} storageOff={storageOff} onPosted={added} />
+        <SignedOut ctx={ctx} login={login} state={loginState} storageOff={storageOff} />
       )}
       <div aria-live="polite" class="kc-notice">
         {notice}
@@ -226,7 +225,11 @@ export function App({ d }: { d: Data }) {
         </button>
       )}
       {page.data.length === 0 ? (
-        <p class="kc-state">{s.empty}</p>
+        <p class="kc-state kc-empty">
+          <EmptyKite />
+          <span>{s.empty}</span>
+          {writable && d.mode === "normal" && <small>{s.emptyHint}</small>}
+        </p>
       ) : (
         <ol class="kc-list">
           {page.data.map((c) => (
@@ -256,15 +259,102 @@ interface Ctx {
   setPage: (f: (p: Page) => Page) => void;
 }
 
-// The Kite Plus mark, drawn in the current text color.
-function Mark() {
+// The Kite Plus mark: in the current text color, or in its own three blues.
+function Mark({ blue }: { blue?: boolean }) {
   return (
     <svg class="kc-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-      <g fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round" transform="translate(32 32) scale(0.82) translate(-32 -32)">
-        <path d="M10 14.5 L27 21 L27 30 L10 23.5 Z" />
-        <path d="M10 32 L27 38.5 L27 49 L10 42.5 Z" />
-        <path d="M37 21 L54 14.5 L54 42.5 L37 49 Z" />
+      <g stroke-width="5" stroke-linejoin="round" transform="translate(32 32) scale(0.82) translate(-32 -32)">
+        <Panels blue={blue} />
       </g>
+    </svg>
+  );
+}
+
+function Panels({ blue }: { blue?: boolean }) {
+  const [a, b, c] = blue ? ["#4a77d6", "#3e67c0", "#5b87e0"] : ["currentColor", "currentColor", "currentColor"];
+  return (
+    <>
+      <path fill={a} stroke={a} d="M10 14.5 L27 21 L27 30 L10 23.5 Z" />
+      <path fill={b} stroke={b} d="M10 32 L27 38.5 L27 49 L10 42.5 Z" />
+      <path fill={c} stroke={c} d="M37 21 L54 14.5 L54 42.5 L37 49 Z" />
+    </>
+  );
+}
+
+// The flying kite of the Kite Plus pages: the mark with a lit edge and a tail.
+function KiteBody() {
+  return (
+    <g stroke-linejoin="round" stroke-width="5" transform="translate(32 32) scale(0.82) translate(-32 -32)">
+      <Panels blue />
+      <path fill="#fff" stroke="none" opacity=".22" d="M10 14.5 L27 21 L10 23.5 Z" />
+      <path fill="#fff" stroke="none" opacity=".12" d="M37 21 L54 14.5 L37 49 Z" />
+      <path fill="none" stroke="currentColor" stroke-width=".6" d="M10 44 C 6 50, 12 54, 7 60 S 9 68, 3 74" />
+      <path fill="#b3432d" stroke="none" d="M7.6 51.4 l2.6 -1.4 l.2 2.6 z" />
+      <path fill="#e0b25a" stroke="none" d="M6.6 59.6 l2.6 -1.2 l.1 2.6 z" />
+      <path fill="#b3432d" stroke="none" d="M5.2 67.8 l2.6 -1.2 l.1 2.6 z" />
+    </g>
+  );
+}
+
+// The signed-out card's kite, its string tied to a grommet on the card, as on
+// the Kite Plus sign-in page.
+function Fly() {
+  return (
+    <svg class="kc-fly" viewBox="0 0 132 88" aria-hidden="true" focusable="false">
+      <path d="M96 43 C 90 64, 58 74, 24 82" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".75" />
+      <g class="kc-sway">
+        <g transform="translate(66 -4) rotate(-14 32 40)">
+          <KiteBody />
+        </g>
+      </g>
+      <circle cx="20" cy="83.4" r="3.6" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6" />
+    </svg>
+  );
+}
+
+// The idle kite over an empty editor. Its string ends on the post button's
+// top edge; styles.css reels it in once the editor has focus or text.
+function IdleKite() {
+  return (
+    <svg class="kc-kite" viewBox="0 0 150 87" aria-hidden="true" focusable="false">
+      <path class="kc-string" pathLength={100} d="M120 87 C 118 72, 80 74, 72 46" />
+      <g class="kc-kite-body">
+        <g class="kc-sway">
+          <g transform="translate(44 0) rotate(-12 32 32) scale(.78)">
+            <KiteBody />
+          </g>
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+function EmptyKite() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M32 6 L48 24 L32 44 L16 24 Z" />
+      <path d="M16 24 L48 24 M32 6 L32 44" />
+      <path d="M32 44 C 28 50, 36 52, 31 58 S 34 62, 30 64" stroke-dasharray="2.5 3" />
+    </svg>
+  );
+}
+
+function Smile() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5c1 1.3 2.2 2 3.5 2s2.5-.7 3.5-2" />
+      <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function MarkdownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="2.5" y="5.5" width="19" height="13" rx="2.5" />
+      <path d="M6 15V9l2.5 3L11 9v6M16 9v5.5m-2.2-2.2 2.2 2.2 2.2-2.2" />
     </svg>
   );
 }
@@ -275,7 +365,7 @@ function Frame({ s, d, children }: { s: Strings; d: Data; children: ComponentChi
       {children}
       <footer class="kc-foot">
         <a href={d.public_url} target="_blank" rel="noopener">
-          <Mark />
+          <Mark blue />
           {s.footer}
         </a>
       </footer>
@@ -291,73 +381,160 @@ function applyTheme(mode: string, accent: string, cs: string, font: string) {
   r.style.colorScheme = cs;
 }
 
-// The signed-out composer has the signed-in composer's height, so the host
-// page cannot tell readers apart by the iframe's height (widget.md 9).
-function SignedOut({ ctx, login, state, storageOff, onPosted }: {
-  ctx: Ctx; login: Login | null; state: LoginState; storageOff: boolean; onPosted: (c: Comment) => void;
-}) {
-  const { s, d } = ctx;
-  const [guest, setGuest] = useState(false);
-  if (guest) return <GuestComposer ctx={ctx} onDone={onPosted} onCancel={() => setGuest(false)} />;
+// The signed-out card has the signed-in composer's height, so the host page
+// cannot tell readers apart by the iframe's height (widget.md 9).
+function SignedOut({ ctx, login, state, storageOff }: { ctx: Ctx; login: Login | null; state: LoginState; storageOff: boolean }) {
+  const { s } = ctx;
+  const fallback = state === "fallback";
   return (
-    <div class="kc-box kc-composer kc-signedout">
-      {storageOff ? (
-        <p class="kc-state">{s.storageOff}</p>
-      ) : state === "fallback" ? (
-        <>
-          <p class="kc-hint">{s.popupBlocked}</p>
-          <button type="button" class="kc-primary" onClick={() => login?.redirect()}>
-            <Mark />
-            {s.signInHere}
-          </button>
-        </>
-      ) : (
-        <>
-          <button type="button" class="kc-primary" onClick={() => login?.start()} disabled={state === "waiting"}>
-            <Mark />
-            {state === "waiting" ? s.waiting : s.signIn}
-          </button>
-          {d.guest_policy && d.guest_policy !== "off" && (
-            <button type="button" class="kc-link" onClick={() => setGuest(true)}>
-              {s.guest}
+    <div class={"kc-box kc-composer kc-signedout" + (state === "waiting" ? " kc-waiting" : "")}>
+      <div class="kc-invite">
+        <b>{s.inviteTitle}</b>
+        {storageOff ? (
+          <p class="kc-state">{s.storageOff}</p>
+        ) : (
+          <>
+            <p>{fallback ? s.popupBlocked : s.inviteNote}</p>
+            <button type="button" class="kc-primary" onClick={() => (fallback ? login?.redirect() : login?.start())} disabled={state === "waiting"}>
+              <Mark />
+              {fallback ? s.signInHere : state === "waiting" ? s.waiting : s.signIn}
             </button>
-          )}
-        </>
-      )}
+          </>
+        )}
+      </div>
+      <Fly />
     </div>
   );
 }
 
+// Generated avatars are seals with their own transparent corners. Not lazy:
+// in the cross-origin frame Chrome only fetches lazy images once scrolled
+// into the page's viewport, so they popped in late; the frame itself loads
+// lazily already.
 function Avatar({ src }: { src: string }) {
-  return <img class="kc-avatar" src={src} width={36} height={36} alt="" loading="lazy" decoding="async" />;
+  const generated = src.includes("/avatars/generated/");
+  return <img class={"kc-avatar" + (generated ? " kc-seal" : "")} src={src} width={36} height={36} alt="" decoding="async" />;
 }
 
-function Editor({ ctx, value, onInput, autoFocus }: { ctx: Ctx; value: string; onInput: (v: string) => void; autoFocus?: boolean }) {
+const EMOJI = [
+  "🪁", "😀", "😄", "😂", "🤣", "😊", "😍", "🥰", "😘", "😋", "😎", "🤔", "🤨", "🙄", "😏", "😴",
+  "😮", "😲", "🥲", "😢", "😭", "😤", "😡", "🤯", "😳", "🥺", "😇", "🤗", "🤭", "🫡", "🙃", "😅",
+  "👍", "👎", "👏", "🙌", "🙏", "💪", "👌", "✌️", "🤝", "👀", "💡", "🔥", "✨", "🎉", "💯", "❤️",
+  "💔", "☕", "🍵", "🌸", "🌿", "🍃", "🌙", "⭐", "☀️", "🌈", "📚", "✏️", "📝", "💻", "🐛", "🚀",
+];
+
+const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+// The editor and the action row under it: emoji and Markdown trays, the
+// write and preview tabs, then the form's own buttons (children).
+function Editor({ ctx, value, onInput, autoFocus, kite, error, onOpen, children }: {
+  ctx: Ctx; value: string; onInput: (v: string) => void; autoFocus?: boolean; kite?: boolean; error?: string;
+  onOpen?: (open: boolean) => void; children: ComponentChildren;
+}) {
   const { s } = ctx;
   const [preview, setPreview] = useState<string | null>(null);
-  const togglePreview = async () => {
-    if (preview !== null) return setPreview(null);
+  const [tray, setTray] = useState<"" | "emoji" | "md">("");
+  const ta = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => onOpen?.(tray !== ""), [tray]);
+  const showPreview = async () => {
+    if (preview !== null) return;
     const r = await call<{ html: string }>("POST", "/api/v1/preview", { body: value }).catch(() => null);
     setPreview(r?.body.html ?? "");
   };
+  const insert = (text: string) => {
+    const el = ta.current;
+    const at = el ? el.selectionStart : value.length;
+    const next = value.slice(0, at) + text + value.slice(el ? el.selectionEnd : at);
+    if (next.length > 5000) return;
+    onInput(next);
+    setPreview(null);
+    requestAnimationFrame(() => {
+      ta.current?.focus();
+      ta.current?.setSelectionRange(at + text.length, at + text.length);
+    });
+  };
+  const tool = (kind: "emoji" | "md", label: string, icon: ComponentChildren) => (
+    <button type="button" class="kc-tool" aria-pressed={tray === kind} aria-label={label} title={label} onClick={() => setTray(tray === kind ? "" : kind)}>
+      {icon}
+    </button>
+  );
+  const m = s.md;
   return (
-    <div class="kc-editor">
-      {preview === null ? (
-        <textarea
-          aria-label={s.placeholder}
-          placeholder={s.placeholder}
-          value={value}
-          maxLength={5000}
-          autoFocus={autoFocus}
-          onInput={(e) => onInput((e.target as HTMLTextAreaElement).value)}
-        />
-      ) : (
-        <Html class="kc-body kc-preview" html={preview} />
-      )}
-      <button type="button" class="kc-link kc-preview-toggle" onClick={togglePreview}>
-        {preview === null ? s.preview : s.write}
-      </button>
-    </div>
+    <>
+      <div class="kc-editor">
+        <div class="kc-write">
+          {preview === null ? (
+            <>
+              <textarea
+                ref={ta}
+                aria-label={s.placeholder}
+                placeholder={s.placeholder}
+                value={value}
+                maxLength={5000}
+                autoFocus={autoFocus}
+                onInput={(e) => onInput((e.target as HTMLTextAreaElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+                  }
+                }}
+              />
+              {kite && <IdleKite />}
+            </>
+          ) : (
+            <Html class="kc-body kc-preview" html={preview} empty={s.previewEmpty} />
+          )}
+        </div>
+        {tray === "emoji" && (
+          <div class="kc-tray">
+            <div class="kc-tray-head">
+              <span>{s.emoji}</span>
+              <span>{s.emojiHint}</span>
+            </div>
+            <div class="kc-emoji">
+              {EMOJI.map((e) => (
+                <button type="button" key={e} onClick={() => insert(e)}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {tray === "md" && (
+          <div class="kc-tray">
+            <div class="kc-tray-head">
+              <span>{s.markdown}</span>
+            </div>
+            <dl class="kc-md">
+              <dt><code>**{m.bold}**</code></dt><dd><b>{m.bold}</b></dd>
+              <dt><code>*{m.italic}*</code></dt><dd><i>{m.italic}</i></dd>
+              <dt><code>[{m.link}](https://…)</code></dt><dd><u>{m.link}</u></dd>
+              <dt><code>&gt; {m.quote}</code></dt><dd class="kc-md-quote">{m.quote}</dd>
+              <dt><code>`{m.code}`</code></dt><dd><code>{m.code}</code></dd>
+              <dt><code>- {m.list}</code></dt><dd>• {m.list}</dd>
+            </dl>
+          </div>
+        )}
+      </div>
+      <div class="kc-actions">
+        {tool("emoji", s.emoji, <Smile />)}
+        {tool("md", s.markdown, <MarkdownIcon />)}
+        <i class="kc-sep" aria-hidden="true" />
+        <span class={"kc-tabs" + (preview !== null ? " kc-previewing" : "")} role="group">
+          <button type="button" aria-pressed={preview === null} onClick={() => setPreview(null)}>
+            {s.write}
+          </button>
+          <button type="button" aria-pressed={preview !== null} onClick={showPreview}>
+            {s.preview}
+          </button>
+        </span>
+        <span class="kc-error" role="alert">
+          {error}
+        </span>
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -373,6 +550,7 @@ function Composer({ ctx, viewer, onDone, onSignOut, parent, onCancel }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
+  const [open, setOpen] = useState(false);
   const submit = async (e: Event) => {
     e.preventDefault();
     if (!body.trim() || busy) return;
@@ -392,7 +570,7 @@ function Composer({ ctx, viewer, onDone, onSignOut, parent, onCancel }: {
     }
   };
   return (
-    <form class={"kc-box kc-composer" + (parent ? " kc-reply-form" : "")} onSubmit={submit}>
+    <form class={"kc-box kc-composer" + (parent ? " kc-reply-form" : "") + (open ? " kc-open" : "")} onSubmit={submit}>
       <div class="kc-who">
         <Avatar src={viewer.avatar} />
         <span class="kc-name">{viewer.name}</span>
@@ -403,7 +581,7 @@ function Composer({ ctx, viewer, onDone, onSignOut, parent, onCancel }: {
         )}
         {onSignOut && (
           <span class="kc-menu">
-            <button type="button" class="kc-link" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+            <button type="button" class="kc-link kc-dots" aria-expanded={menu} onClick={() => setMenu(!menu)}>
               ···
             </button>
             {menu && (
@@ -419,85 +597,19 @@ function Composer({ ctx, viewer, onDone, onSignOut, parent, onCancel }: {
           </span>
         )}
       </div>
-      <Editor ctx={ctx} value={body} onInput={setBody} autoFocus={!!parent} />
-      <div class="kc-actions">
-        <span class="kc-error" role="alert">
-          {err}
-        </span>
+      <Editor ctx={ctx} value={body} onInput={setBody} autoFocus={!!parent} kite={!parent} error={err} onOpen={setOpen}>
         {onCancel && (
           <button type="button" class="kc-link" onClick={onCancel}>
             {s.cancel}
           </button>
         )}
+        <kbd class="kc-keys" aria-hidden="true">
+          {mac ? "⌘ ↵" : "Ctrl ↵"}
+        </kbd>
         <button type="submit" class="kc-primary" disabled={busy || !body.trim()}>
           {busy ? s.posting : s.post}
         </button>
-      </div>
-    </form>
-  );
-}
-
-function GuestComposer({ ctx, onDone, onCancel, parent }: { ctx: Ctx; onDone: (c: Comment) => void; onCancel: () => void; parent?: Comment }) {
-  const { s, d } = ctx;
-  const saved = (() => {
-    try {
-      return JSON.parse(storage.get("kc:g") ?? "{}") as { name?: string; email?: string; url?: string };
-    } catch {
-      return {};
-    }
-  })();
-  const [f, setF] = useState({ name: saved.name ?? "", email: saved.email ?? "", url: saved.url ?? "", notify: false, website: "" });
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState("");
-  const [err, setErr] = useState("");
-  const field = (k: "name" | "email" | "url" | "website") => (e: Event) => setF({ ...f, [k]: (e.target as HTMLInputElement).value });
-  const submit = async (e: Event) => {
-    e.preventDefault();
-    if (busy) return;
-    setErr("");
-    try {
-      setBusy(s.checking);
-      const ch = (await call<Challenge>("GET", "/api/v1/pow/challenge?site=" + encodeURIComponent(d.site ?? ""))).body;
-      const pow = await solve(ch);
-      setBusy(s.posting);
-      const r = await call<Comment>("POST", "/api/v1/comments", {
-        site: d.site, key: d.key, url: d.url, title: d.title, published: d.published, parent_id: parent?.id, body, lang: d.lang,
-        guest: { name: f.name, email: f.email, url: f.url, notify: f.notify, website: f.website, token: guestToken() }, pow,
-      });
-      storage.set("kc:g", JSON.stringify({ name: f.name, email: f.email, url: f.url }));
-      setBody("");
-      onDone(r.body);
-      onCancel();
-    } catch (x) {
-      setErr(errorText(s, x));
-    } finally {
-      setBusy("");
-    }
-  };
-  return (
-    <form class="kc-box kc-guest" onSubmit={submit}>
-      <div class="kc-fields">
-        <input required maxLength={40} placeholder={s.name} aria-label={s.name} value={f.name} onInput={field("name")} />
-        <input required type="email" maxLength={254} placeholder={s.email} aria-label={s.email} value={f.email} onInput={field("email")} />
-        <input type="url" maxLength={300} placeholder={s.site} aria-label={s.site} value={f.url} onInput={field("url")} />
-        <input class="kc-hp" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.website} onInput={field("website")} />
-      </div>
-      <Editor ctx={ctx} value={body} onInput={setBody} autoFocus />
-      <div class="kc-actions">
-        <label class="kc-check">
-          <input type="checkbox" checked={f.notify} onChange={(e) => setF({ ...f, notify: (e.target as HTMLInputElement).checked })} />
-          {s.notify}
-        </label>
-        <span class="kc-error" role="alert">
-          {err}
-        </span>
-        <button type="button" class="kc-link" onClick={onCancel}>
-          {s.cancel}
-        </button>
-        <button type="submit" class="kc-primary" disabled={!!busy || !body.trim()}>
-          {busy || s.post}
-        </button>
-      </div>
+      </Editor>
     </form>
   );
 }
@@ -532,7 +644,7 @@ function Item({ ctx, c, replying, onPosted }: { ctx: Ctx; c: Comment; replying: 
     setMore({ list: [...(more?.list ?? []), ...r.data], cursor: r.next_cursor });
   };
   return (
-    <li class="kc-thread">
+    <li class={"kc-thread" + (shown > 0 ? " kc-has-replies" : "")}>
       <One ctx={ctx} c={c} />
       {replying?.id === c.id && <ReplyForm ctx={ctx} parent={c} onPosted={onPosted} />}
       {shown > 0 && (
@@ -555,8 +667,8 @@ function Item({ ctx, c, replying, onPosted }: { ctx: Ctx; c: Comment; replying: 
 }
 
 function ReplyForm({ ctx, parent, onPosted }: { ctx: Ctx; parent: Comment; onPosted: (c: Comment) => void }) {
-  if (ctx.viewer) return <Composer ctx={ctx} viewer={ctx.viewer} parent={parent} onDone={onPosted} onCancel={() => ctx.setReplying(null)} />;
-  return <GuestComposer ctx={ctx} parent={parent} onDone={onPosted} onCancel={() => ctx.setReplying(null)} />;
+  if (!ctx.viewer) return null;
+  return <Composer ctx={ctx} viewer={ctx.viewer} parent={parent} onDone={onPosted} onCancel={() => ctx.setReplying(null)} />;
 }
 
 function One({ ctx, c }: { ctx: Ctx; c: Comment }) {
@@ -575,7 +687,7 @@ function One({ ctx, c }: { ctx: Ctx; c: Comment }) {
   const a = c.author!;
   const mine = !!viewer && a.kind === "user" && a.id === viewer.author_id;
   const editable = mine && Date.now() - Date.parse(c.created_at) < 24 * 3600 * 1000;
-  const canReply = ctx.writable && (!!viewer || (d.guest_policy && d.guest_policy !== "off")) && (!c.status || c.status === "published");
+  const canReply = ctx.writable && !!viewer && (!c.status || c.status === "published");
   const act = async (fn: () => Promise<void>) => {
     setErr("");
     try {
@@ -614,6 +726,7 @@ function One({ ctx, c }: { ctx: Ctx; c: Comment }) {
         </div>
         {editing !== null ? (
           <form
+            class="kc-edit"
             onSubmit={(e) => {
               e.preventDefault();
               void act(async () => {
@@ -622,15 +735,14 @@ function One({ ctx, c }: { ctx: Ctx; c: Comment }) {
               });
             }}
           >
-            <Editor ctx={ctx} value={editing} onInput={setEditing} autoFocus />
-            <div class="kc-actions">
+            <Editor ctx={ctx} value={editing} onInput={setEditing} autoFocus>
               <button type="button" class="kc-link" onClick={() => setEditing(null)}>
                 {s.cancel}
               </button>
               <button type="submit" class="kc-primary">
                 {s.save}
               </button>
-            </div>
+            </Editor>
           </form>
         ) : (
           <Html class="kc-body" html={c.body_html ?? ""} />

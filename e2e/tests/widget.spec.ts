@@ -233,16 +233,12 @@ test("deep links scroll to and highlight a comment", async ({ context, page }) =
   await expect(widget(fresh).locator("#" + id)).toHaveClass(/kc-focus/);
 });
 
-test("C3: a guest comments on blog B with proof of work", async ({ page }) => {
+test("C3: blog B, open to guests, offers only the Kite Plus sign-in", async ({ page }) => {
   await open(page, H.blogB + "/posts/welcome/");
   const w = widget(page);
-  await w.getByRole("button", { name: /访客|guest/i }).click();
-  await w.getByPlaceholder(/Name|昵称/).fill("Guest Gail");
-  await w.getByPlaceholder(/Email|邮箱/).fill("gail@example.com");
-  await w.locator(".kc-guest textarea").fill("A guest was here");
-  await w.locator(".kc-guest").getByRole("button", { name: /^(发表|Post)$/ }).click();
-  await expect(w.locator(".kc-list .kc-body", { hasText: "A guest was here" })).toBeVisible({ timeout: 30000 });
-  await expect(w.locator(".kc-name", { hasText: "Guest Gail" }).first()).toBeVisible();
+  await expect(w.getByRole("button", { name: /Kite Plus/ })).toBeVisible();
+  await expect(w.getByRole("button", { name: /访客|guest/i })).toHaveCount(0);
+  await expect(w.locator("textarea")).toHaveCount(0);
 });
 
 test("reply mail reaches the author of the comment replied to", async ({ browser }) => {

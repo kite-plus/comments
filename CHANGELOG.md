@@ -24,6 +24,12 @@ The first code: the service of the invite-only stage, not yet deployed. It runs 
 - The identity service's user events arrive by webhook and by hourly reconciliation and are treated as hints: the user's current state is read first, deactivation suspends and reactivation resumes, locking changes nothing, and data is deleted only when the event search confirms the removal.
 - Deployment files: one image for serve, worker and migrate; Compose, with an edge mode for a Caddy shared with other services on the server, where the HTTP server (Compose service `server`) joins the shared `kite-edge` network instead of publishing a port; Caddy routes that strip cookies from reads, used by both the standalone Caddyfile and the edge site files; environment examples; and an age-encrypted backup that can copy itself off the server with rclone.
 
+### Changed
+
+- The widget is drawn in the paper-kite look of the Kite Plus pages, still in the blog's accent and serif or sans font: ink buttons, dashed rules, a stamp for the blog owner, replies hung on a thin string, a sign-in invitation with a kite tied to the card, and a kite over the empty editor that is reeled into the post button when the reader starts writing. The composer is taller and has an emoji tray, Markdown tips, write and preview tabs and Cmd/Ctrl+Enter to post.
+- Default avatars are seals with the first letter of the name in one of twelve inks instead of 5x5 pixel patterns; their address now carries the letter (`?c=`), which also retires the cached pixel ones.
+- The widget no longer offers guest comments; the guest API and existing or imported guest comments are unchanged.
+
 ### Security
 
 Fixes from the 2026-10 security review, before any deployment:
