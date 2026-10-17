@@ -39,7 +39,7 @@
 
 **属性变化即生效**：改 `page`、`page-key` 会换到另一个讨论页，改 `theme`、`accent`、`lang` 当场生效，元素移出文档就销毁 iframe。所以 VitePress、Docusaurus、Next.js 这类单页应用切换路由时，框架照常重新渲染这个元素即可，不需要调用任何 API。
 
-**现在就要定死的接口**：元素名 `kite-comments` 和上表属性、脚本标签上的 `crossorigin="anonymous"`、iframe 地址（§4）、宿主页与 iframe 的消息协议（§6）、讨论页标识规则（§5）、评论锚点 `#kc-<评论 ID>` 和登录返回标记 `#kc-login`（§8）。它们会被博主复制进成千上万个页面，以后改动只能加版本号，不能原地改。
+**现在就要定死的接口**：元素名 `kite-comments` 和上表属性、样式变量 `--kite-comments-*`（§7）、脚本标签上的 `crossorigin="anonymous"`、iframe 地址（§4）、宿主页与 iframe 的消息协议（§6）、讨论页标识规则（§5）、评论锚点 `#kc-<评论 ID>` 和登录返回标记 `#kc-login`（§8）。它们会被博主复制进成千上万个页面，以后改动只能加版本号，不能原地改。
 
 ---
 
@@ -75,10 +75,11 @@ https://comments.kite.plus/embed/v1/thread
     &published=<发布时间，可省略>
     &lang=zh-CN&theme=light&accent=%233d65bd&font=serif
     &cs=<宿主页的 color-scheme>
+    &style=<宿主页的样式变量，JSON，可省略>
     &focus=<评论 ID，可省略>
 ```
 
-`theme` 是 `embed.js` 判断后的结果，只有 `light`、`dark`（`auto` 在宿主页上算完再传）；`cs` 是宿主页计算出的 `color-scheme`，iframe 设成一样的值（§7）；`lang` 已按 §2 归一。
+`theme` 是 `embed.js` 判断后的结果，只有 `light`、`dark`（`auto` 在宿主页上算完再传）；`cs` 是宿主页计算出的 `color-scheme`，iframe 设成一样的值（§7）；`lang` 已按 §2 归一；`style` 是 `embed.js` 读到并校验过的样式变量（§7），没有就省略，iframe 收到后按同一规则再校验一遍。
 
 服务端收到后：
 
@@ -92,7 +93,7 @@ https://comments.kite.plus/embed/v1/thread
 3. 按 §5 算出讨论页标识，查出第一页评论，内联进 HTML。讨论页不存在就返回空列表，**不创建记录**。
 4. 响应头：
    - `Content-Security-Policy: frame-ancestors <按上面的模式>`。**这是「组件只能出现在已验证站点上」的真正保证**：iframe 里发出的请求，`Origin` 永远是 `comments.kite.plus`，服务端无法靠请求头判断宿主是谁，只能让浏览器按 `frame-ancestors` 拒绝在别处渲染。
-   - 其余 CSP：`default-src 'none'; script-src 'self'; style-src 'self' 'sha256-…'; img-src 'self' data:; connect-src 'self'; form-action 'self' <身份服务的 origin>; base-uri 'none'; require-trusted-types-for 'script'; trusted-types kc`。不允许内联脚本；内联的只有组件的 CSS（整份，约 1.8 KB gzip），服务启动时算出它的哈希写进 `style-src`（文档可被缓存，不能用每次响应都变的 nonce）；首屏数据放在 `<script type="application/json">` 里，浏览器不执行它，不受 `script-src` 限制。头像、图标都由自己的域名提供。`form-action` 加上身份服务，是因为整页跳转的表单先到 `/auth/redirect` 再被重定向过去，浏览器对重定向也检查 `form-action`。评论 HTML 经名为 `kc` 的 Trusted Types 策略写入，只有它能创建。
+   - 其余 CSP：`default-src 'none'; script-src 'self'; style-src 'self' 'sha256-…'; img-src 'self' data:; connect-src 'self'; form-action 'self' <身份服务的 origin>; base-uri 'none'; require-trusted-types-for 'script'; trusted-types kc`。不允许内联脚本；内联的只有组件的 CSS（整份，约 4.3 KB gzip），服务启动时算出它的哈希写进 `style-src`（文档可被缓存，不能用每次响应都变的 nonce）；首屏数据放在 `<script type="application/json">` 里，浏览器不执行它，不受 `script-src` 限制。头像、图标都由自己的域名提供。`form-action` 加上身份服务，是因为整页跳转的表单先到 `/auth/redirect` 再被重定向过去，浏览器对重定向也检查 `form-action`。评论 HTML 经名为 `kc` 的 Trusted Types 策略写入，只有它能创建。
    - `Referrer-Policy: strict-origin`，不是 `no-referrer`（[login.md §4.4](login.md#44-整页跳转降级)）。
    - `Cache-Control: public, max-age=30`，不带 `Set-Cookie`。
 5. **收不到 Cookie**：反向代理对 iframe 文档、匿名读取接口、头像和 `embed.js` 删掉 Cookie 请求头。会话 Cookie 必须用 `__Host-` 前缀，路径只能是 `/`，浏览器会在这些请求上带上它；删掉之后，服务端在技术上就无法把读取和身份对上（[login.md §5](login.md#5-站点会话)）。
@@ -137,7 +138,7 @@ https://comments.kite.plus/embed/v1/thread
 | iframe → 宿主 | `resize` | `height` | 调整 iframe 高度 |
 | iframe → 宿主 | `scroll` | `top` | 深链接定位：目标评论在 iframe 内的偏移（§8） |
 | iframe → 宿主 | `count` | `count` | 已发布评论数，`embed.js` 在元素上派发 `kite-comments:count` 事件，主题可以拿去显示「12 条评论」 |
-| 宿主 → iframe | `theme` | `mode`、`accent`、`colorScheme` | 宿主页切换深浅色 |
+| 宿主 → iframe | `theme` | `mode`、`accent`、`colorScheme`、`style` | 宿主页切换深浅色；`style` 是重新读到的样式变量（§7） |
 | 宿主 → iframe | `focus` | `commentId` | 宿主页地址的 `#kc-` 变了 |
 
 校验规则：
@@ -154,7 +155,36 @@ https://comments.kite.plus/embed/v1/thread
 - **高度**：iframe 内用 `ResizeObserver` 报告高度，`embed.js` 设置 `iframe.style.height`。加载前保留 160px，减少布局跳动。
 - **深浅色**：`theme="auto"` 时，`embed.js` 取宿主页 `body`（透明就往上取 `html`）的计算背景色，相对亮度低于 0.4 判为深色；监听 `prefers-color-scheme` 变化，以及 `html`、`body` 上 `class`、`style`、`data-theme` 属性的变化（100ms 去抖），变了就发 `theme` 消息。显式的 `light`、`dark` 不做检测。
 - **背景透明**：iframe 文档背景透明，融进宿主页。浏览器在 iframe 与宿主页的 `color-scheme` 不一致时会给 iframe 垫一层不透明底色，所以 `embed.js` 会把宿主页的计算 `color-scheme` 一并传进来，iframe 设成一样的值。
-- **字体**：跨域 iframe 继承不了宿主页字体，只提供 `sans`、`serif` 两套系统字体栈，都带中文回退，不加载网络字体。
+- **字体**：跨域 iframe 继承不了宿主页字体，只提供 `sans`、`serif` 两套系统字体栈，都带中文回退，不加载网络字体。正文（标题、名字、评论、输入框）用这套字体，按钮、时间、标签等界面文字始终用系统无衬线体；字号以 15px 为基准，全部用 `rem`。
+- **样式变量**：主题千差万别，组件只取强调色和一套字体还不够。宿主页可以在 `kite-comments` 或任何祖先元素上设 CSS 变量，`embed.js` 用 `getComputedStyle` 读出来、校验后通过 iframe 地址（§4）和 `theme` 消息（§6）传进去，iframe 再校验一遍写到自己的根元素上。宿主页的样式表本身进不了跨域 iframe，这是唯一的入口。
+
+  ```css
+  kite-comments {
+    --kite-comments-accent: #2f6f8f;
+    --kite-comments-font: "Iowan Old Style", "Songti SC", serif;
+    --kite-comments-radius: 4px;
+    --kite-comments-decor: none;
+  }
+  ```
+
+  | 变量 | 取值 | 作用 |
+  |---|---|---|
+  | `--kite-comments-accent` | 颜色 | 强调色，优先于 `accent` 属性；风筝、Logo、印章、下划线都从它调出深浅 |
+  | `--kite-comments-text` | 颜色 | 正文颜色 |
+  | `--kite-comments-muted` | 颜色 | 次要文字：时间、提示、操作 |
+  | `--kite-comments-line` | 颜色 | 边框和虚线 |
+  | `--kite-comments-surface` | 颜色 | 卡片、代码块和悬停时的底色 |
+  | `--kite-comments-button` | 颜色 | 主按钮底色，默认墨色 |
+  | `--kite-comments-button-text` | 颜色 | 主按钮文字 |
+  | `--kite-comments-font` | 字体列表 | 正文字体，优先于 `font` 属性 |
+  | `--kite-comments-ui-font` | 字体列表 | 界面文字的字体 |
+  | `--kite-comments-font-size` | 长度 | 基准字号，默认 `15px` |
+  | `--kite-comments-radius` | 长度 | 卡片圆角，默认 `12px`，输入框、按钮、头像、印章按比例跟着变 |
+  | `--kite-comments-decor` | `auto` 或 `none` | `none` 去掉风筝和回复的风筝线，回复改用一条左边线，适合极简主题 |
+
+  校验规则写在 `web/widget/src/lib.ts`：颜色只收十六进制、颜色名和 `rgb()`、`hsl()`、`oklch()` 这类颜色函数；长度只收 `px`、`rem`、`em`；字体列表不能含括号、分号、冒号、尖括号。凡是会发请求或引用别处的值（`url()`、`image-set()`、`var()`、`attr()`）都过不去，不合格的变量直接丢掉，回到默认值。iframe 的 CSP 不允许任何字体来源，所以字体变量只能写读者设备上已有的字体，宿主页的网络字体用不上。
+
+  变量只有一个值，深色模式要换颜色的，宿主页在自己的深色选择器里改写这些变量即可：`embed.js` 发现宿主页切换深浅色（§7 深浅色一条）时会重新读取，随 `theme` 消息传进去。
 - **宽度**：跟随容器，最窄 320px。
 - **无障碍**：全部操作可用键盘完成；新评论用 `aria-live` 播报；尊重 `prefers-reduced-motion`。
 
@@ -179,12 +209,12 @@ https://comments.kite.plus/embed/v1/thread
 | 区域 | 内容 |
 |---|---|
 | 顶部 | 「N 条评论」，一条虚线引到排序切换（最早、最新），下划线在两者间滑动；默认值由站点设置决定 |
-| 输入框 | 登录前后占用同样的高度。未登录：邀请卡，「登录后参与讨论」、一句说明和「用 Kite Plus 账号登录」，右边一只风筝拴在卡片上。组件不提供访客评论：评论就是为了让读者凭账号找回自己说过的话（服务端的访客接口和已有、导入的访客评论不受影响）。已登录：头像、显示名、输入框，下面一行是表情、Markdown 写法、「编写 / 预览」切换、⌘↵（Ctrl↵）提示和「发表」；菜单里有「退出此站点」「读者中心」 |
+| 输入框 | 登录前后占用同样的高度。未登录：邀请卡，一行强调色小字「Kite Plus 账号」、「登录后参与讨论」、一句说明和「用 Kite Plus 账号登录」，右边一只强调色的风筝拴在卡片上。组件不提供访客评论：评论就是为了让读者凭账号找回自己说过的话（服务端的访客接口和已有、导入的访客评论不受影响）。已登录：头像、显示名、输入框，下面一行是表情、Markdown 写法、「编写 / 预览」切换、⌘↵（Ctrl↵）提示和「发表」；菜单里有「退出此站点」「读者中心」 |
 | 单条评论 | 头像（没选身份服务头像时是生成的印章字，[api.md §1](api.md#1-约定)）、显示名（有个人主页时链接过去，带 `rel="ugc nofollow"`）、「博主」小印章、「已编辑」标记、相对时间（悬停显示完整时间）、正文；操作：回复、举报，自己的评论可编辑、删除 |
 | 回复 | 挂在顶层评论下，由一根细线从顶层评论的头像牵出，默认显示接口带回的前几条（[api.md §1](api.md#1-约定)），其余点「展开 N 条回复」；被回复者不是顶层作者时显示「回复 @某人」 |
 | 管理者 | 站点所有者和协管员登录后，组件改用带身份的读取接口，能看到待审、隐藏和垃圾评论，每条评论多出通过、隐藏、恢复、置顶、标为垃圾；封禁和批量处理在控制台里做，组件里给出链接 |
 | 状态 | 评论进了审核时，只在发表的那一刻显示「已提交，审核通过后显示」，之后在读者中心查看状态，组件里不再显示；讨论页锁定时显示「评论已关闭」；没有评论时画一只线描风筝，显示「还没有评论」，能发表时再加一句「来写下第一条吧」 |
-| 底部 | 三色风筝标记和「Kite Plus 评论」，链接到 `comments.kite.plus` |
+| 底部 | 风筝标记和「Kite Plus 评论」，链接到 `comments.kite.plus`；标记和组件里的风筝一样，用强调色调出的三种深浅，不用 Kite Plus 自己的三色蓝，免得在别人的主题里突兀 |
 
 界面文字有 `zh-CN`、`en` 两套，从第一版起就有。
 
@@ -198,11 +228,11 @@ https://comments.kite.plus/embed/v1/thread
 
 | 项 | 预算或规则 |
 |---|---|
-| `embed.js` | ≤ 4 KB gzip（现在 2.7 KB）；`Cache-Control: public, max-age=300`，改动 5 分钟内生效；带 `Access-Control-Allow-Origin: *`，配合 `crossorigin="anonymous"` |
+| `embed.js` | ≤ 4 KB gzip（现在 3.2 KB）；`Cache-Control: public, max-age=300`，改动 5 分钟内生效；带 `Access-Control-Allow-Origin: *`，配合 `crossorigin="anonymous"` |
 | 固定版本 | 同时发布 `/embed/v1.<次版本>.<补丁>.js`，内容不可变、长期缓存；控制台从 `GET /api/v1/embed-info` 取地址和 `integrity`，给出锁定版本和自托管的写法（§12）。版本号是 `web/widget/package.json` 的 `version`；构建把当前版本写到 `dist/embed/`，旧版本发布时放进 `web/widget/public/embed/` 一起提交，继续可用 |
 | 服务的 origin | 构建出的 `embed.js` 里只有占位，服务端返回时换成自己的 `COMMENTS_PUBLIC_URL`，SRI 按换完的内容算。所以下载下来自托管的副本仍然指向服务 |
 | iframe 文档 | HTML 外壳、关键 CSS 和首屏 20 条顶层评论的数据，合计 ≤ 30 KB gzip |
-| 界面脚本 | ≤ 40 KB gzip（现在 14 KB，Preact 加界面），文件名带哈希，长期缓存。`make web` 的构建在超出预算时失败 |
+| 界面脚本 | ≤ 40 KB gzip（现在 16 KB，Preact 加界面），文件名带哈希，长期缓存。`make web` 的构建在超出预算时失败 |
 | 第三方请求 | 无：不加载网络字体、统计脚本或外链头像 |
 | 懒加载 | `IntersectionObserver`，提前 800px；不支持时在 `load` 事件后加载 |
 | 超时 | 10 秒没收到 `ready`，元素内显示「评论加载失败，重试」，并在控制台输出可能的原因（站点未验证、当前 origin 不在站点里、网络问题） |

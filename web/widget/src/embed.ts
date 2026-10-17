@@ -2,7 +2,7 @@
 // address, language and theme, loads the iframe lazily and sizes it. It
 // never touches credentials, cookies or storage of the host page
 // (widget.md section 3).
-import { KC, accentOf, focusFromHash, frameSrc, normalizeLang, pageURL, themeFromBackgrounds } from "./lib";
+import { KC, accentOf, focusFromHash, frameSrc, normalizeLang, pageURL, readStyle, themeFromBackgrounds } from "./lib";
 
 // The server replaces this with its own origin when it serves the file, so
 // a self-hosted copy still points at the service.
@@ -61,6 +61,13 @@ class KiteComments extends HTMLElement {
     return { mode, cs: getComputedStyle(d).colorScheme === "normal" ? mode : getComputedStyle(d).colorScheme };
   }
 
+  // The host's --kite-comments-* variables, checked; JSON for the address.
+  private hostStyle(): string | null {
+    const cs = getComputedStyle(this);
+    const vars = readStyle((p) => cs.getPropertyValue(p));
+    return Object.keys(vars).length ? JSON.stringify(vars) : null;
+  }
+
   private load(scroll: boolean, rebuild = false) {
     if (this.frame && !rebuild) return;
     this.io?.disconnect();
@@ -75,6 +82,7 @@ class KiteComments extends HTMLElement {
       site, url: pageURL(this.getAttribute("page"), canonical, location.href), key: this.getAttribute("page-key"),
       title: this.getAttribute("page-title") ?? document.title, published: this.getAttribute("page-published"),
       lang, theme: mode, cs, accent: accentOf(this.getAttribute("accent")), font: this.getAttribute("font"), focus: this.target,
+      style: this.hostStyle(),
     });
     f.title = lang === "en" ? "Comments" : "评论";
     f.setAttribute("allow", "identity-credentials-get");
@@ -101,7 +109,8 @@ class KiteComments extends HTMLElement {
     this.debounce = window.setTimeout(() => {
       const { mode, cs } = this.theme();
       if (this.frame) this.frame.style.colorScheme = cs;
-      this.post({ type: "theme", mode, colorScheme: cs, accent: accentOf(this.getAttribute("accent")) });
+      const style = this.hostStyle();
+      this.post({ type: "theme", mode, colorScheme: cs, accent: accentOf(this.getAttribute("accent")), style: style ? JSON.parse(style) : {} });
     }, 100);
   }
 

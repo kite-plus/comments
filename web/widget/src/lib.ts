@@ -75,6 +75,7 @@ export interface FrameParams {
   font?: string | null;
   cs?: string | null;
   focus?: string | null;
+  style?: string | null; // JSON of StyleVars
 }
 
 /** The iframe's address (widget.md section 4). */
@@ -92,4 +93,53 @@ export function accentOf(v: string | null): string | null {
 /** Whether a user agent is an in-app browser where popups do not work. */
 export function inAppBrowser(ua: string): boolean {
   return /MicroMessenger|QQ\/|MQQBrowser|Weibo/i.test(ua);
+}
+
+/**
+ * The style variables a host page may set on <kite-comments> (or any
+ * ancestor) as --kite-comments-<name>, with the kind of value each takes.
+ */
+export const STYLE_VARS = {
+  accent: "color",
+  text: "color",
+  muted: "color",
+  line: "color",
+  surface: "color",
+  button: "color",
+  "button-text": "color",
+  font: "font",
+  "ui-font": "font",
+  "font-size": "length",
+  radius: "length",
+  decor: "keyword",
+} as const;
+
+export type StyleVars = Partial<Record<keyof typeof STYLE_VARS, string>>;
+
+// Values go into the iframe's custom properties, so only plain colors,
+// lengths, font lists and keywords pass: nothing that loads (url(), image())
+// or refers elsewhere (var(), attr()).
+const VALID = {
+  color: (v: string) => v.length <= 64 && /^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+|(rgba?|hsla?|oklch|oklab|lab|lch)\([0-9a-z.,%\s/+-]*\))$/i.test(v),
+  font: (v: string) => v.length <= 200 && /^[^;{}()<>\\:@!]+$/.test(v),
+  length: (v: string) => /^(0|\d{1,3}(\.\d{1,4})?(px|rem|em))$/.test(v),
+  keyword: (v: string) => v === "none" || v === "auto",
+};
+
+/** Keeps the known variables whose values are of their kind. */
+export function cleanStyle(raw: unknown): StyleVars {
+  const out: StyleVars = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, kind] of Object.entries(STYLE_VARS) as [keyof typeof STYLE_VARS, keyof typeof VALID][]) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === "string" && VALID[kind](v.trim())) out[k] = v.trim();
+  }
+  return out;
+}
+
+/** Reads the variables through get, e.g. a computed style's getPropertyValue. */
+export function readStyle(get: (property: string) => string): StyleVars {
+  const raw: Record<string, string> = {};
+  for (const k of Object.keys(STYLE_VARS)) raw[k] = get("--kite-comments-" + k);
+  return cleanStyle(raw);
 }

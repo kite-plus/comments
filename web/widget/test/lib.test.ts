@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accentOf, focusFromHash, frameSrc, inAppBrowser, luminance, normalizeLang, pageURL, parseRGB, themeFromBackgrounds } from "../src/lib";
+import { accentOf, cleanStyle, focusFromHash, frameSrc, inAppBrowser, luminance, normalizeLang, pageURL, parseRGB, readStyle, themeFromBackgrounds } from "../src/lib";
 import { relative } from "../src/app/i18n";
 
 describe("normalizeLang", () => {
@@ -60,6 +60,39 @@ describe("iframe address", () => {
     expect(accentOf("#ABCDEF")).toBe("#ABCDEF");
     expect(accentOf("red")).toBeNull();
     expect(accentOf("#abc")).toBeNull();
+  });
+});
+
+describe("host style variables", () => {
+  it("keeps plain colors, lengths, fonts and keywords", () => {
+    const v = readStyle((p) =>
+      ({
+        "--kite-comments-text": " #333 ",
+        "--kite-comments-surface": "rgba(0, 0, 0, .04)",
+        "--kite-comments-line": "hsl(30 10% 80% / 50%)",
+        "--kite-comments-button": "rebeccapurple",
+        "--kite-comments-font": `"LXGW WenKai", "霞鹜文楷", serif`,
+        "--kite-comments-radius": "4px",
+        "--kite-comments-font-size": "1.0625rem",
+        "--kite-comments-decor": "none",
+      })[p] ?? "",
+    );
+    expect(v).toEqual({
+      text: "#333", surface: "rgba(0, 0, 0, .04)", line: "hsl(30 10% 80% / 50%)", button: "rebeccapurple",
+      font: `"LXGW WenKai", "霞鹜文楷", serif`, radius: "4px", "font-size": "1.0625rem", decor: "none",
+    });
+  });
+
+  it("drops anything that loads or refers elsewhere", () => {
+    expect(
+      cleanStyle({
+        text: "url(https://evil.example/x)", muted: "var(--x)", line: "rgb(var(--r), 0, 0)", surface: "image(red)",
+        font: "x; } body { display: none", "ui-font": "a</style>", radius: "calc(1px + 1px)", "font-size": "99999px",
+        decor: "off", accent: "#12345", unknown: "#fff",
+      }),
+    ).toEqual({});
+    expect(cleanStyle("#fff")).toEqual({});
+    expect(cleanStyle(null)).toEqual({});
   });
 });
 

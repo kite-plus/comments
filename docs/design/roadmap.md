@@ -130,7 +130,7 @@
 | Kite 评论插件 | 未做（另一个仓库） |
 | 运维：部署、备份、监控；隐私政策和服务条款；`abuse@kite.plus` | 部署文件含边缘模式（共用 Explore 的 Caddy，[architecture.md §9](architecture.md#9-部署与运维)），本机按服务器的布局演练过；`scripts/backup.sh` 加密备份并可复制到异地，本机恢复进空库过；未部署，没有镜像发布流程和监控，没有政策文本 |
 
-退出条件都还没有满足：没有外部博客在用，安全检查清单（[login.md §8](login.md#8-威胁模型与安全检查)）没有逐项过，没有做恢复演练；体积预算已达标（embed.js 2.7 KB、界面 14 KB）。
+退出条件都还没有满足：没有外部博客在用，安全检查清单（[login.md §8](login.md#8-威胁模型与安全检查)）没有逐项过，没有做恢复演练；体积预算已达标（embed.js 3.2 KB、界面 16 KB）。
 
 **内测站点**：`www.kite.plus` 的新闻、`demo/blog`，再邀请 3–5 位分别用 Hexo、Hugo、WordPress、Halo 的博主。
 

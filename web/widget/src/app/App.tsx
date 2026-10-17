@@ -3,7 +3,7 @@ import type { ComponentChildren } from "preact";
 import { ApiError, call, q, read, setToken, storage, type Comment, type Page, type Viewer } from "./api";
 import { Login, type LoginState } from "./auth";
 import { relative, strings, type Strings } from "./i18n";
-import { KC } from "../lib";
+import { KC, cleanStyle, type StyleVars } from "../lib";
 
 export interface Data {
   v: number;
@@ -117,7 +117,10 @@ export function App({ d }: { d: Data }) {
     const onMessage = (e: MessageEvent) => {
       const m = e.data;
       if (e.source !== parent || !allowed(e.origin) || !m || m.kc !== KC) return;
-      if (m.type === "theme") applyTheme(m.mode, m.accent ?? d.accent, m.colorScheme ?? m.mode, d.font);
+      if (m.type === "theme") {
+        applyTheme(m.mode, m.accent ?? d.accent, m.colorScheme ?? m.mode, d.font);
+        applyStyle(cleanStyle(m.style));
+      }
       if (m.type === "focus" && typeof m.commentId === "string") {
         setHighlight(m.commentId);
         void load({ around: m.commentId });
@@ -130,6 +133,7 @@ export function App({ d }: { d: Data }) {
   // Height, readiness and count for the host page (widget.md sections 6, 7).
   useEffect(() => {
     applyTheme(d.theme, d.accent, d.color_scheme, d.font);
+    applyStyle(initialStyle());
     const ro = new ResizeObserver(() => post({ type: "resize", height: Math.ceil(document.documentElement.getBoundingClientRect().height) }));
     ro.observe(document.documentElement);
     post({ type: "ready" });
@@ -259,24 +263,25 @@ interface Ctx {
   setPage: (f: (p: Page) => Page) => void;
 }
 
-// The Kite Plus mark: in the current text color, or in its own three blues.
-function Mark({ blue }: { blue?: boolean }) {
+// The Kite Plus mark: in the current text color, or in the accent's tones.
+function Mark({ tinted }: { tinted?: boolean }) {
   return (
     <svg class="kc-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
       <g stroke-width="5" stroke-linejoin="round" transform="translate(32 32) scale(0.82) translate(-32 -32)">
-        <Panels blue={blue} />
+        <Panels tinted={tinted} />
       </g>
     </svg>
   );
 }
 
-function Panels({ blue }: { blue?: boolean }) {
-  const [a, b, c] = blue ? ["#4a77d6", "#3e67c0", "#5b87e0"] : ["currentColor", "currentColor", "currentColor"];
+// In three tones of the host's accent (styles.css), or in the text color.
+function Panels({ tinted }: { tinted?: boolean }) {
+  const ink = tinted ? undefined : "currentColor";
   return (
     <>
-      <path fill={a} stroke={a} d="M10 14.5 L27 21 L27 30 L10 23.5 Z" />
-      <path fill={b} stroke={b} d="M10 32 L27 38.5 L27 49 L10 42.5 Z" />
-      <path fill={c} stroke={c} d="M37 21 L54 14.5 L54 42.5 L37 49 Z" />
+      <path class={tinted ? "kc-tone1" : undefined} fill={ink} stroke={ink} d="M10 14.5 L27 21 L27 30 L10 23.5 Z" />
+      <path class={tinted ? "kc-tone2" : undefined} fill={ink} stroke={ink} d="M10 32 L27 38.5 L27 49 L10 42.5 Z" />
+      <path class={tinted ? "kc-tone3" : undefined} fill={ink} stroke={ink} d="M37 21 L54 14.5 L54 42.5 L37 49 Z" />
     </>
   );
 }
@@ -285,13 +290,13 @@ function Panels({ blue }: { blue?: boolean }) {
 function KiteBody() {
   return (
     <g stroke-linejoin="round" stroke-width="5" transform="translate(32 32) scale(0.82) translate(-32 -32)">
-      <Panels blue />
+      <Panels tinted />
       <path fill="#fff" stroke="none" opacity=".22" d="M10 14.5 L27 21 L10 23.5 Z" />
       <path fill="#fff" stroke="none" opacity=".12" d="M37 21 L54 14.5 L37 49 Z" />
       <path fill="none" stroke="currentColor" stroke-width=".6" d="M10 44 C 6 50, 12 54, 7 60 S 9 68, 3 74" />
-      <path fill="#b3432d" stroke="none" d="M7.6 51.4 l2.6 -1.4 l.2 2.6 z" />
-      <path fill="#e0b25a" stroke="none" d="M6.6 59.6 l2.6 -1.2 l.1 2.6 z" />
-      <path fill="#b3432d" stroke="none" d="M5.2 67.8 l2.6 -1.2 l.1 2.6 z" />
+      <path class="kc-tone2" stroke="none" d="M7.6 51.4 l2.6 -1.4 l.2 2.6 z" />
+      <path class="kc-tone3" stroke="none" d="M6.6 59.6 l2.6 -1.2 l.1 2.6 z" />
+      <path class="kc-tone2" stroke="none" d="M5.2 67.8 l2.6 -1.2 l.1 2.6 z" />
     </g>
   );
 }
@@ -365,7 +370,7 @@ function Frame({ s, d, children }: { s: Strings; d: Data; children: ComponentChi
       {children}
       <footer class="kc-foot">
         <a href={d.public_url} target="_blank" rel="noopener">
-          <Mark blue />
+          <Mark tinted />
           {s.footer}
         </a>
       </footer>
@@ -381,6 +386,30 @@ function applyTheme(mode: string, accent: string, cs: string, font: string) {
   r.style.colorScheme = cs;
 }
 
+// The host's --kite-comments-* variables, from the address at first and with
+// every theme message after (widget.md section 7).
+function initialStyle(): StyleVars {
+  try {
+    return cleanStyle(JSON.parse(new URLSearchParams(location.search).get("style") ?? "{}"));
+  } catch {
+    return {};
+  }
+}
+
+const STYLE_PROPS: [keyof StyleVars, string[]][] = [
+  ["text", ["--kc-fg"]], ["muted", ["--kc-muted"]], ["line", ["--kc-line", "--kc-dash"]], ["surface", ["--kc-soft"]],
+  ["button", ["--kc-btn"]], ["button-text", ["--kc-on-btn"]], ["font", ["--kc-font"]], ["ui-font", ["--kc-ui"]],
+  ["font-size", ["--kc-size"]], ["radius", ["--kc-radius"]],
+];
+
+function applyStyle(v: StyleVars) {
+  const r = document.documentElement;
+  // applyTheme has just set the accent; a host variable only overrides it.
+  if (v.accent) r.style.setProperty("--kc-accent", v.accent);
+  for (const [k, props] of STYLE_PROPS) for (const p of props) v[k] ? r.style.setProperty(p, v[k]!) : r.style.removeProperty(p);
+  r.dataset.decor = v.decor === "none" ? "none" : "auto";
+}
+
 // The signed-out card has the signed-in composer's height, so the host page
 // cannot tell readers apart by the iframe's height (widget.md 9).
 function SignedOut({ ctx, login, state, storageOff }: { ctx: Ctx; login: Login | null; state: LoginState; storageOff: boolean }) {
@@ -389,6 +418,7 @@ function SignedOut({ ctx, login, state, storageOff }: { ctx: Ctx; login: Login |
   return (
     <div class={"kc-box kc-composer kc-signedout" + (state === "waiting" ? " kc-waiting" : "")}>
       <div class="kc-invite">
+        <span class="kc-kicker">{s.inviteKicker}</span>
         <b>{s.inviteTitle}</b>
         {storageOff ? (
           <p class="kc-state">{s.storageOff}</p>
