@@ -11,13 +11,13 @@ import (
 	"github.com/kite-plus/comments/internal/policy"
 )
 
-const siteColumns = `s.id, s.public_id::text, s.name, s.status, coalesce(s.status_note, ''), s.guest_policy, s.member_policy,
+const siteColumns = `s.id, s.public_id::text, s.name, s.status, coalesce(s.status_note, ''), s.member_policy,
 	s.sort_order, s.close_after_days, s.query_keys, s.allow_localhost, s.owner_notify, s.blocked_words, s.created_by,
 	s.verified_at, s.approved_at, s.deleted_at, s.created_at, s.updated_at`
 
 func scanSite(row pgx.Row) (model.Site, error) {
 	var x model.Site
-	err := row.Scan(&x.ID, &x.PublicID, &x.Name, &x.Status, &x.StatusNote, &x.GuestPolicy, &x.MemberPolicy,
+	err := row.Scan(&x.ID, &x.PublicID, &x.Name, &x.Status, &x.StatusNote, &x.MemberPolicy,
 		&x.SortOrder, &x.CloseAfterDays, &x.QueryKeys, &x.AllowLocalhost, &x.OwnerNotify, &x.BlockedWords, &x.CreatedBy,
 		&x.VerifiedAt, &x.ApprovedAt, &x.DeletedAt, &x.CreatedAt, &x.UpdatedAt)
 	if x.QueryKeys == nil {
@@ -143,7 +143,7 @@ func (s *Store) SitesOf(ctx context.Context, userID int64) ([]MemberSite, error)
 	for rows.Next() {
 		var x model.Site
 		var m MemberSite
-		if err := rows.Scan(&x.ID, &x.PublicID, &x.Name, &x.Status, &x.StatusNote, &x.GuestPolicy, &x.MemberPolicy,
+		if err := rows.Scan(&x.ID, &x.PublicID, &x.Name, &x.Status, &x.StatusNote, &x.MemberPolicy,
 			&x.SortOrder, &x.CloseAfterDays, &x.QueryKeys, &x.AllowLocalhost, &x.OwnerNotify, &x.BlockedWords, &x.CreatedBy,
 			&x.VerifiedAt, &x.ApprovedAt, &x.DeletedAt, &x.CreatedAt, &x.UpdatedAt, &m.Role, &m.PendingCount, &m.ReportedCount); err != nil {
 			rows.Close()
@@ -184,7 +184,6 @@ func (s *Store) AddMember(ctx context.Context, siteID, userID int64, role string
 // SiteSettings changes the fields that are set.
 type SiteSettings struct {
 	Name           *string
-	GuestPolicy    *string
 	MemberPolicy   *string
 	SortOrder      *string
 	CloseAfterDays **int
@@ -203,16 +202,15 @@ func (s *Store) UpdateSite(ctx context.Context, siteID int64, p SiteSettings) (m
 	}
 	_, err := s.pool.Exec(ctx, `UPDATE sites SET
 		name = coalesce($2, name),
-		guest_policy = coalesce($3, guest_policy),
-		member_policy = coalesce($4, member_policy),
-		sort_order = coalesce($5, sort_order),
-		close_after_days = CASE WHEN $6 THEN $7 ELSE close_after_days END,
-		query_keys = coalesce($8, query_keys),
-		allow_localhost = coalesce($9, allow_localhost),
-		owner_notify = coalesce($10, owner_notify),
-		blocked_words = coalesce($11, blocked_words),
+		member_policy = coalesce($3, member_policy),
+		sort_order = coalesce($4, sort_order),
+		close_after_days = CASE WHEN $5 THEN $6 ELSE close_after_days END,
+		query_keys = coalesce($7, query_keys),
+		allow_localhost = coalesce($8, allow_localhost),
+		owner_notify = coalesce($9, owner_notify),
+		blocked_words = coalesce($10, blocked_words),
 		updated_at = now()
-		WHERE id = $1`, siteID, p.Name, p.GuestPolicy, p.MemberPolicy, p.SortOrder, setClose, closeDays,
+		WHERE id = $1`, siteID, p.Name, p.MemberPolicy, p.SortOrder, setClose, closeDays,
 		p.QueryKeys, p.AllowLocalhost, p.OwnerNotify, p.BlockedWords)
 	if err != nil {
 		return model.Site{}, err

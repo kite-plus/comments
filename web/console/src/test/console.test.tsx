@@ -38,7 +38,6 @@ describe('sites and registration', () => {
         name: 'Test Blog',
         origin: 'https://test.example.com',
         aliases: ['https://www.test.example.com'],
-        guest_policy: 'off',
       },
     })
     expect(router.state.location.pathname).toMatch(/^\/console\/sites\/[\w-]+\/verify$/)
@@ -243,12 +242,11 @@ describe('overview', () => {
 })
 
 describe('site settings and lifecycle', () => {
-  it('saves changed settings only, with guests fixed off', async () => {
+  it('saves changed settings only, with no guest setting', async () => {
     const { user, writes } = renderApp(`${NOTES}/settings`)
-    const guests = await screen.findByRole('radiogroup', { name: 'Guest comments' })
-    expect(within(guests).getByRole('radio', { name: 'Off' })).toBeDisabled()
+    const members = await screen.findByRole('radiogroup', { name: 'Comments from signed-in readers' })
+    expect(screen.queryByRole('radiogroup', { name: 'Guest comments' })).not.toBeInTheDocument()
 
-    const members = screen.getByRole('radiogroup', { name: 'Comments from signed-in readers' })
     await user.click(within(members).getByRole('radio', { name: 'Moderate first' }))
     const words = screen.getByRole('textbox', { name: 'Blocked words' })
     await user.type(words, '{enter}spam')

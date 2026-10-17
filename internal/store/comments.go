@@ -648,14 +648,13 @@ func (s *Store) LockThread(ctx context.Context, siteID, threadID int64, locked b
 	})
 }
 
-// RecentDuplicate reports whether the same author posted the same body
-// within the duplicate window. The author is a user or a guest email.
-func (s *Store) RecentDuplicate(ctx context.Context, userID *int64, emailHMAC []byte, body string) (bool, error) {
+// RecentDuplicate reports whether the reader posted the same body within
+// the duplicate window.
+func (s *Store) RecentDuplicate(ctx context.Context, userID int64, body string) (bool, error) {
 	var dup bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM comments WHERE md5(body_md) = md5($3) AND body_md = $3
-		AND created_at > now() - $4 * interval '1 second'
-		AND (($1::bigint IS NOT NULL AND author_user_id = $1) OR ($2::bytea IS NOT NULL AND author_email_hmac = $2)))`,
-		userID, emailHMAC, body, seconds(policy.DuplicateWindow)).Scan(&dup)
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM comments WHERE md5(body_md) = md5($2) AND body_md = $2
+		AND created_at > now() - $3 * interval '1 second' AND author_user_id = $1)`,
+		userID, body, seconds(policy.DuplicateWindow)).Scan(&dup)
 	return dup, err
 }
 

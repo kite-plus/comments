@@ -4,9 +4,9 @@ import { Link } from 'react-router'
 import { Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import * as api from '@/api'
-import type { GuestPolicy, MemberPolicy, OwnerNotify, Site, SitePatch, SortOrder } from '@/api'
+import type { MemberPolicy, OwnerNotify, Site, SitePatch, SortOrder } from '@/api'
 import { useI18n } from '@/i18n'
-import { FEATURES, POLICY, parseOrigin } from '@/lib/policy'
+import { POLICY, parseOrigin } from '@/lib/policy'
 import { keys, useApiMutation } from '@/hooks/use-api'
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { ListSkeleton, PageHeader, QueryError, Spinner } from '@/components/common'
@@ -23,7 +23,6 @@ import { useSite, useSiteDetail } from './site-context'
 
 type Draft = {
   name: string
-  guest_policy: GuestPolicy
   member_policy: MemberPolicy
   sort_order: SortOrder
   auto_close: boolean
@@ -37,7 +36,6 @@ type Draft = {
 function toDraft(site: Site): Draft {
   return {
     name: site.name,
-    guest_policy: site.guest_policy,
     member_policy: site.member_policy,
     sort_order: site.sort_order,
     auto_close: site.close_after_days !== null,
@@ -56,7 +54,6 @@ const same = (a: string[], b: string[]) => a.length === b.length && a.every((v, 
 function diff(site: Site, d: Draft): SitePatch {
   const patch: SitePatch = {}
   if (d.name.trim() !== site.name) patch.name = d.name.trim()
-  if (d.guest_policy !== site.guest_policy) patch.guest_policy = d.guest_policy
   if (d.member_policy !== site.member_policy) patch.member_policy = d.member_policy
   if (d.sort_order !== site.sort_order) patch.sort_order = d.sort_order
   const days = d.auto_close ? Number(d.close_after_days) : null
@@ -75,21 +72,18 @@ function Choice<T extends string>({
   value,
   options,
   onChange,
-  disabled,
   label,
 }: {
   name: string
   value: T
   options: { value: T; label: string }[]
   onChange: (value: T) => void
-  disabled?: boolean
   label: string
 }) {
   return (
     <RadioGroup
       value={value}
       onValueChange={(v) => onChange(v as T)}
-      disabled={disabled}
       aria-label={label}
       className='flex flex-wrap gap-x-6 gap-y-2'
     >
@@ -140,7 +134,6 @@ function SettingsForm({ site }: { site: Site }) {
   }
 
   const policyOptions = {
-    guest: (['off', 'review', 'publish'] as const).map((v) => ({ value: v, label: t(`settings.guest.${v}`) })),
     member: (['publish', 'review'] as const).map((v) => ({ value: v, label: t(`settings.member.${v}`) })),
     sort: (['oldest', 'newest'] as const).map((v) => ({ value: v, label: t(`settings.sort.${v}`) })),
     notify: (['instant', 'daily', 'off'] as const).map((v) => ({ value: v, label: t(`settings.notify.${v}`) })),
@@ -160,18 +153,6 @@ function SettingsForm({ site }: { site: Site }) {
       </Section>
 
       <Section title={t('settings.commenting')}>
-        <div className='space-y-2'>
-          <p className='text-sm font-medium'>{t('settings.guestPolicy')}</p>
-          <Choice
-            name='guest'
-            label={t('settings.guestPolicy')}
-            value={draft.guest_policy}
-            options={policyOptions.guest}
-            onChange={(v) => set('guest_policy', v)}
-            disabled={!FEATURES.guests}
-          />
-          {!FEATURES.guests && <p className='text-sm text-muted-foreground'>{t('settings.guestC2')}</p>}
-        </div>
         <div className='space-y-2'>
           <p className='text-sm font-medium'>{t('settings.memberPolicy')}</p>
           <Choice

@@ -46,7 +46,7 @@ func A(embed string) Blog {
 // B returns blog B's content.
 func B(embed string) Blog {
 	return Blog{Name: "Blog B", SiteID: SiteB, Dark: true, Embed: embed, Posts: []Post{
-		{Path: "/posts/welcome/", Title: "Welcome to blog B", Body: "The dark test blog. Guests may comment here."},
+		{Path: "/posts/welcome/", Title: "Welcome to blog B", Body: "The dark test blog."},
 		{Path: "/coop/", Title: "A page with COOP same-origin", Body: "Login falls back to the full-page redirect here (roadmap T10)."},
 	}}
 }

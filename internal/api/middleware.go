@@ -214,17 +214,6 @@ func (l *limiter) allow(key string) (bool, time.Duration) {
 	return true, 0
 }
 
-// count returns how many requests the key made in the current window.
-func (l *limiter) count(key string) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	w := l.counts[key]
-	if l.now().Sub(w.start) >= l.window {
-		return 0
-	}
-	return w.n
-}
-
 // clientLabel sums up a user agent as a browser and system name for the reader center;
 // the user agent itself is not stored (data-model.md section 3.2).
 func clientLabel(ua string) string {

@@ -4,20 +4,18 @@ import { useNavigate } from 'react-router'
 import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import * as api from '@/api'
-import type { GuestPolicy, SiteCreated } from '@/api'
+import type { SiteCreated } from '@/api'
 import { useI18n } from '@/i18n'
-import { FEATURES, POLICY, parseOrigin } from '@/lib/policy'
+import { POLICY, parseOrigin } from '@/lib/policy'
 import { keys, useApiMutation } from '@/hooks/use-api'
 import { PageHeader, Spinner } from '@/components/common'
 import { Field, Section, describedBy } from '@/components/common/form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 export type VerifyState = { verification?: SiteCreated['verification'] }
 
-type Errors = { name?: string; origin?: string; aliases: (string | undefined)[]; guests?: string }
+type Errors = { name?: string; origin?: string; aliases: (string | undefined)[] }
 
 export default function NewSitePage() {
   const { t } = useI18n()
@@ -26,7 +24,6 @@ export default function NewSitePage() {
   const [name, setName] = useState('')
   const [origin, setOrigin] = useState('')
   const [aliases, setAliases] = useState<string[]>([])
-  const [guests, setGuests] = useState<GuestPolicy | null>(FEATURES.guests ? null : 'off')
   const [errors, setErrors] = useState<Errors>({ aliases: [] })
 
   const create = useApiMutation(api.sites.create, {
@@ -77,14 +74,12 @@ export default function NewSitePage() {
       seen.add(parsed.origin)
       cleanAliases.push(parsed.origin)
     })
-    if (!guests) next.guests = t('validation.choose')
     setErrors(next)
-    if (next.name || next.origin || next.aliases.some(Boolean) || next.guests) return
+    if (next.name || next.origin || next.aliases.some(Boolean)) return
     create.mutate({
       name: trimmed,
       origin: (primary as { origin: string }).origin,
       aliases: cleanAliases,
-      guest_policy: guests!,
     })
   }
 
@@ -163,24 +158,6 @@ export default function NewSitePage() {
               </Button>
             )}
           </fieldset>
-        </Section>
-
-        <Section title={t('settings.guestPolicy')} description={FEATURES.guests ? t('newSite.guestsChoose') : t('newSite.guestsC2')}>
-          {FEATURES.guests && (
-            <RadioGroup
-              value={guests ?? ''}
-              onValueChange={(v) => setGuests(v as GuestPolicy)}
-              aria-invalid={errors.guests ? true : undefined}
-            >
-              {(['off', 'review', 'publish'] as const).map((value) => (
-                <div key={value} className='flex items-center gap-3'>
-                  <RadioGroupItem value={value} id={`guest-${value}`} />
-                  <Label htmlFor={`guest-${value}`}>{t(`settings.guest.${value}`)}</Label>
-                </div>
-              ))}
-            </RadioGroup>
-          )}
-          {errors.guests && <p role='alert' className='text-sm text-destructive'>{errors.guests}</p>}
         </Section>
 
         <div className='flex justify-end'>

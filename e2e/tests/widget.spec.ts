@@ -233,7 +233,7 @@ test("deep links scroll to and highlight a comment", async ({ context, page }) =
   await expect(widget(fresh).locator("#" + id)).toHaveClass(/kc-focus/);
 });
 
-test("C3: blog B, open to guests, offers only the Kite Plus sign-in", async ({ page }) => {
+test("signed out, the widget offers only the Kite Plus sign-in", async ({ page }) => {
   await open(page, H.blogB + "/posts/welcome/");
   const w = widget(page);
   await expect(w.getByRole("button", { name: /Kite Plus/ })).toBeVisible();

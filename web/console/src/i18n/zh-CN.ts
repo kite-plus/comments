@@ -45,7 +45,6 @@ export const zhCN = {
   'validation.httpsOnly': '只接受 https:// 开头的地址。',
   'validation.originFormat': '请填写 origin，如 https://blog.example.com，不带路径。',
   'validation.duplicate': '和其他地址重复。',
-  'validation.choose': '请选择一项。',
 
   'lang.label': '语言',
   'lang.name': '简体中文',
@@ -273,8 +272,6 @@ export const zhCN = {
   'newSite.aliasLabel': '别名 {n}',
   'newSite.addAlias': '添加别名',
   'newSite.removeAlias': '移除别名 {n}',
-  'newSite.guestsC2': '内测期间只有登录读者能评论，访客评论固定为关闭。',
-  'newSite.guestsChoose': '是否接受访客评论需要你明确选择，没有默认值。',
   'newSite.submit': '注册并去验证',
   'newSite.created': '站点已注册',
 
@@ -512,11 +509,6 @@ export const zhCN = {
   'settings.desc': '只有站点所有者能修改。',
   'settings.general': '基本',
   'settings.commenting': '评论',
-  'settings.guestPolicy': '访客评论',
-  'settings.guest.off': '关闭',
-  'settings.guest.review': '先审后发',
-  'settings.guest.publish': '直接发布',
-  'settings.guestC2': '内测期间固定为关闭。',
   'settings.memberPolicy': '登录读者的评论',
   'settings.member.publish': '直接发布',
   'settings.member.review': '先审后发',

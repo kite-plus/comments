@@ -417,21 +417,19 @@ func (w *Worker) render(ctx context.Context, group []store.Mail) (mailer.Message
 		if len(items) == 0 {
 			return mailer.Message{}, nil, errNothing
 		}
-		var unsub string
-		var after func()
-		if first.Kind == "reply" {
-			userID := ps[0].UserID
-			for i := range items {
-				items[i].MuteURL = mailer.MuteURL(base, w.Keys, userID, threads[i])
+		if first.Kind == "guest_reply" {
+			unsub := mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubGuest+":"+hex.EncodeToString(w.Keys.EmailHMAC(to)))
+			return mailer.GuestReplies(base, locale, to, items, unsub, base+"/me/claims"), nil, nil
+		}
+		userID := ps[0].UserID
+		for i := range items {
+			items[i].MuteURL = mailer.MuteURL(base, w.Keys, userID, threads[i])
+		}
+		unsub := mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubReplies+":"+strconv.FormatInt(userID, 10))
+		after := func() {
+			if err := w.Store.NotificationsEmailed(ctx, userID, ids); err != nil {
+				w.Log.Error("mail", "error", err)
 			}
-			unsub = mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubReplies+":"+strconv.FormatInt(userID, 10))
-			after = func() {
-				if err := w.Store.NotificationsEmailed(ctx, userID, ids); err != nil {
-					w.Log.Error("mail", "error", err)
-				}
-			}
-		} else {
-			unsub = mailer.UnsubscribeURL(base, w.Keys, mailer.UnsubGuest+":"+hex.EncodeToString(w.Keys.EmailHMAC(to)))
 		}
 		return mailer.Replies(base, locale, to, items, unsub), after, nil
 	case "owner", "digest":

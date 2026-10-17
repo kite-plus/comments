@@ -83,16 +83,11 @@ func run() error {
 	p.AddUser(oidctest.User{Subject: "bob", Name: "Bob", Username: "bob", Email: "bob@example.com", EmailVerified: true, Locale: "en"})
 	go func() { _ = http.Serve(idpL, p.Handler()) }()
 
-	for _, x := range []struct{ id, name, origin, guests string }{
-		{devblogs.SiteA, "Blog A", blogA, model.GuestOff},
-		{devblogs.SiteB, "Blog B", blogB, model.GuestPublish},
+	for _, x := range []struct{ id, name, origin string }{
+		{devblogs.SiteA, "Blog A", blogA},
+		{devblogs.SiteB, "Blog B", blogB},
 	} {
-		site, err := st.CreateSite(ctx, store.NewSite{Name: x.name, Origins: []string{x.origin}, Verified: true, PublicID: x.id})
-		if err != nil {
-			return err
-		}
-		g := x.guests
-		if _, err := st.UpdateSite(ctx, site.ID, store.SiteSettings{GuestPolicy: &g}); err != nil {
+		if _, err := st.CreateSite(ctx, store.NewSite{Name: x.name, Origins: []string{x.origin}, Verified: true, PublicID: x.id}); err != nil {
 			return err
 		}
 	}

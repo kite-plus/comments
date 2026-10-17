@@ -1,6 +1,6 @@
 # 接口
 
-> 状态：C2 已实现，以代码为准同步更新 · 最近更新：2026-10-11
+> 状态：C2 已实现，以代码为准同步更新 · 最近更新：2026-10-16
 > 登录流程见 [login.md](login.md)，表结构见 [data-model.md](data-model.md)。本文只列接口和约定，业务规则链接到各自的文档。读者中心和站点控制台的前端约定见 §11。
 
 ---
@@ -120,7 +120,7 @@
 
 ## 5. 组件写入与管理者读取
 
-都要求 `Sec-Fetch-Site: same-origin`（§2）；除访客发表和预览外都要求站点会话。
+都要求 `Sec-Fetch-Site: same-origin`（§2）；除预览外都要求站点会话。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -133,7 +133,7 @@
 | POST | `/api/v1/comments/{id}/moderation` | 管理者处置 `{site, action}`：`approve`、`hide`、`spam`、`restore`、`pin`、`unpin`，返回评论对象。封禁只在控制台里做（§7） |
 | PUT | `/api/v1/threads/lock` | 管理者锁定或解锁 `{site, key, locked}`；讨论页不存在返回 `404` |
 | POST | `/api/v1/preview` | Markdown 预览 `{body}` → `{html}`，和发表用同一个渲染器 |
-| GET | `/api/v1/pow/challenge` | 参数 `site`，访客的工作量证明题目 `{algorithm, challenge, maxnumber, salt, signature}`（[moderation.md §3.2](moderation.md#32-访客)）；站点不接受访客时 `403 guest_not_allowed` |
+| GET | `/api/v1/pow/challenge` | 已取消：原来给访客出工作量证明题目，现在一律 `410 guest_comments_gone`（[moderation.md §3.2](moderation.md#32-访客)） |
 
 `POST /api/v1/comments` 的请求体：
 
@@ -145,16 +145,13 @@
   "title": "文章标题",
   "published": "2026-09-01",
   "parent_id": "18342",
-  "body": "Markdown",
-  "lang": "zh-CN",
-  "guest": {"name": "昵称", "email": "a@b.example", "url": "https://…", "notify": true, "website": "", "token": "浏览器的访客令牌"},
-  "pow": {"challenge": "…", "salt": "…", "signature": "…", "number": 12345}
+  "body": "Markdown"
 }
 ```
 
 - `key` 是 iframe 文档内联的讨论页标识。服务端不盲信它：以 `k:` 开头时按 `page-key` 的规则校验；否则必须等于按 `url` 重新算出的标识（[widget.md §5](widget.md#5-讨论页标识)）。`url` 的 origin 必须是站点的已验证 origin，否则 `400 origin_not_allowed`。
 - 讨论页不存在时，用这次的 `url`、`title`、`published` 创建它，之后不再改写（[data-model.md §3.4](data-model.md#34-讨论页与评论)）。`published` 晚于现在 24 小时以上时按没给处理（[sites.md §4](sites.md#4-站点设置与讨论页管理)）。
-- 没有站点会话时必须带 `guest` 和 `pow`；`guest.website` 是对人不可见的蜜罐字段，有内容就 `400`。`lang` 用于访客的确认信和回复通知。`guest.token` 是组件存在 iframe 里的访客令牌（43 个 base64url 字符）：`notify` 为 `true` 时，这个邮箱在这个令牌上确认过才直接开通知，否则发确认信（[moderation.md §6.1](moderation.md#61-读者)）；不带或格式不对就当作没确认过的浏览器。
+- 没有站点会话时 `401 unauthorized`。访客评论已经取消（[moderation.md §3.2](moderation.md#32-访客)）：没有站点会话、带着 `guest` 字段的请求返回 `410 guest_comments_gone`，消息提示用 Kite Plus 账号登录。原来访客用的 `guest`、`pow` 和 `lang` 字段不再读取。
 - 返回 `201` 和评论对象，带 `status`（可能是 `pending`）。同一作者 10 分钟内发出相同正文返回 `409 conflict`。发布规则和顺序见 [moderation.md §2](moderation.md#2-发布规则)。
 
 普通读者不需要带身份读取评论：自己待审核的评论只在读者中心显示，不在组件里显示（[widget.md §9](widget.md#9-界面)）。
@@ -218,9 +215,9 @@
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/v1/sites` | 登录即可 | 我管理的站点：`{data: [站点…]}`，每个另带 `pending_count`、`reported_count` |
-| POST | `/api/v1/sites` | 登录即可 | 新建站点 `{name, origin, aliases?, guest_policy}`：`guest_policy` 必填（`off`、`review`、`publish`，[sites.md §4](sites.md#4-站点设置与讨论页管理)）；origin 只接受 https（开发服务器另见 [sites.md §2](sites.md#2-注册与验证)）；别名最多 5 个；origin 已被别的站点**验证** `409 conflict`（只登记没验证的不算）；每个账号每天 5 个，超出 `429`；账号已有 10 个未删除的站点 `403 forbidden` |
+| POST | `/api/v1/sites` | 登录即可 | 新建站点 `{name, origin, aliases?}`：origin 只接受 https（开发服务器另见 [sites.md §2](sites.md#2-注册与验证)）；别名最多 5 个；origin 已被别的站点**验证** `409 conflict`（只登记没验证的不算）；每个账号每天 5 个，超出 `429`；账号已有 10 个未删除的站点 `403 forbidden` |
 | GET | `/api/v1/sites/{site}` | | 站点 |
-| PATCH | `/api/v1/sites/{site}` | 所有者 | 设置：`name`、`guest_policy`、`member_policy`、`sort_order`、`close_after_days`（1–3650）或 `clear_close_after_days: true`、`query_keys`（最多 5 个）、`allow_localhost`、`owner_notify`、`blocked_words`（最多 200 个，每个最多 100 字，去重） |
+| PATCH | `/api/v1/sites/{site}` | 所有者 | 设置：`name`、`member_policy`、`sort_order`、`close_after_days`（1–3650）或 `clear_close_after_days: true`、`query_keys`（最多 5 个）、`allow_localhost`、`owner_notify`、`blocked_words`（最多 200 个，每个最多 100 字，去重） |
 | DELETE | `/api/v1/sites/{site}` | 所有者 | 删除，进入恢复窗口，`204`（[sites.md §4](sites.md#4-站点设置与讨论页管理)） |
 | POST | `/api/v1/sites/{site}/restore` | 所有者 | 在恢复窗口内找回站点；被平台暂停的站点恢复成 `suspended`，暂停说明保留 |
 | POST | `/api/v1/sites/{site}/origins` | 所有者 | 加别名 `{origin}`，返回站点；已被别的站点验证 `409 conflict` |
@@ -233,7 +230,7 @@
 | PATCH | `/api/v1/sites/{site}/threads/{thread}` | | 锁定、解锁；修改标题、地址和发布时间：`{title?, url?, published_at?, clear_published_at?, locked?}`，地址必须属于站点；发布时间晚于现在 24 小时以上 `400` |
 | POST | `/api/v1/sites/{site}/threads/{thread}/move` | 所有者 | 迁移到另一个标识 `{to_key}` 或 `{to_url}`，目标已存在则合并；返回目标讨论页。可在审核记录里撤销 |
 | GET | `/api/v1/sites/{site}/bans` | | 有效的封禁：`{id, kind: "user" | "email" | "ip", author_id, name, reason, created_at, expires_at}` |
-| POST | `/api/v1/sites/{site}/bans` | | 封禁 `{kind, comment_id? , author_id?, email?, reason?, days?}`：`user` 按 `comment_id` 的作者或 `author_id`，记下这位读者的身份，删除账号后照样生效（[data-model.md §3.5](data-model.md#35-审核举报与封禁)）；`email` 按 `comment_id` 的访客邮箱或 `email`；`ip` 按 `comment_id` 存下的 IP HMAC（[moderation.md §4.1](moderation.md#41-站点管理者)）。`days` 省略为不过期 |
+| POST | `/api/v1/sites/{site}/bans` | | 封禁 `{kind, comment_id? , author_id?, email?, reason?, days?}`：`user` 按 `comment_id` 的作者或 `author_id`，记下这位读者的身份，删除账号后照样生效（[data-model.md §3.5](data-model.md#35-审核举报与封禁)）；`email` 按 `comment_id` 的访客邮箱或 `email`（只拦访客评论，访客评论取消后已经拦不到人，待删除）；`ip` 按 `comment_id` 存下的 IP HMAC（[moderation.md §4.1](moderation.md#41-站点管理者)）。`days` 省略为不过期 |
 | DELETE | `/api/v1/sites/{site}/bans/{id}` | | 解除 |
 | GET | `/api/v1/sites/{site}/reports` | | 举报：参数 `status`（`open`、`resolved`、`dismissed`）；`{id, reason, note, status, created_at, resolved_at, site, comment}` |
 | PATCH | `/api/v1/sites/{site}/reports/{id}` | | 处理 `{status: "resolved" | "dismissed", action?: "hide" | "spam"}`，`204` |
@@ -250,7 +247,7 @@
 ```json
 {
   "id": "站点 ID", "name": "某某的博客", "status": "active", "status_note": "", "role": "owner",
-  "guest_policy": "off", "member_policy": "publish", "sort_order": "oldest", "close_after_days": null,
+  "member_policy": "publish", "sort_order": "oldest", "close_after_days": null,
   "query_keys": [], "allow_localhost": true, "owner_notify": "instant", "blocked_words": [],
   "origins": [{"origin": "https://blog.example.com", "primary": true, "verified_at": "…", "last_checked_at": "…", "failing_since": null}],
   "created_at": "…", "verified_at": "…", "approved_at": null, "deleted_at": null,
@@ -291,7 +288,7 @@
 | POST | `/auth/backchannel-logout` | 身份服务的 back-channel logout，表单字段 `logout_token`，校验后按 `sid`（没有时按 `sub`）删除会话（[login.md §6](login.md#6-退出)）；无效返回 `400 {"error": "invalid_request"}` |
 | GET、POST | `/unsubscribe?t=` | 退订页；POST 退订，支持 RFC 8058 一键退订。令牌是无状态的签名，旧邮件里的链接一直有效 |
 | GET、POST | `/mute?t=` | 登录读者关闭某个讨论页通知的页面，令牌来自通知邮件 |
-| GET、POST | `/guest-email/confirm?t=` | 访客邮箱确认页；POST 才确认 |
+| GET、POST | `/guest-email/confirm?t=` | 访客邮箱确认页；POST 才确认。访客评论取消后不再发新的确认信，已发出的链接 30 天内仍可确认（[moderation.md §6.1](moderation.md#61-读者)） |
 | GET | `/healthz`、`/readyz` | 存活与就绪检查 |
 
 ---
@@ -303,17 +300,16 @@
 | 400 | `invalid_request` | 参数缺失或格式不对，或不适用于当前状态（比如回复一条未发布的评论、置顶一条回复） |
 | 400 | `comment_too_long`、`too_many_links` | 超出 [moderation.md §3.4](moderation.md#34-限额-待定) 的限额 |
 | 400 | `origin_not_allowed` | 页面地址不属于这个站点 |
-| 400 | `pow_invalid` | 工作量证明缺失、无效或已用过 |
 | 401 | `unauthorized` | 没有会话或会话已失效 |
 | 403 | `forbidden` | 没有权限；封禁也返回这个，不说明原因；登录入口和组件写接口的来源校验不通过、缺少 CSRF 令牌也是这个 |
 | 403 | `site_inactive` | 站点未验证、待批准、被暂停或已删除 |
 | 403 | `thread_locked` | 讨论页已锁定或已自动关闭 |
 | 403 | `edit_window_closed` | 超过编辑窗口 |
-| 403 | `guest_not_allowed` | 站点不接受访客评论 |
 | 404 | `not_found` | 资源不存在，或无权知道它存在 |
 | 409 | `conflict` | 比如 origin 已被别的站点验证、重复的 challenge、10 分钟内的重复评论 |
 | 409 | `sole_owner` | 删除数据前要先处理自己唯一拥有的站点 |
 | 410 | `login_expired` | 登录交易过期或已兑换 |
+| 410 | `guest_comments_gone` | 访客评论已取消：带 `guest` 的发表请求和 `GET /api/v1/pow/challenge` |
 | 415 | `invalid_request` | 请求体不是 JSON |
 | 422 | `verification_failed` | 站点验证没通过，结果里说明查到了什么 |
 | 422 | `import_invalid` | 导入文件无法解析，或超出条数、站点配额 |

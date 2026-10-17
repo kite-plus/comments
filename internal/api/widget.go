@@ -203,29 +203,15 @@ func contains(list []string, v string) bool {
 
 // commentIn is the body of POST /api/v1/comments.
 type commentIn struct {
-	Site      string   `json:"site"`
-	Key       string   `json:"key"`
-	URL       string   `json:"url"`
-	Title     string   `json:"title"`
-	Published string   `json:"published"`
-	ParentID  string   `json:"parent_id"`
-	Body      string   `json:"body"`
-	Lang      string   `json:"lang"`
-	Guest     *guestIn `json:"guest"`
-	Pow       *powIn   `json:"pow"`
-}
-
-type guestIn struct {
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	URL    string `json:"url"`
-	Notify bool   `json:"notify"`
-	// Honeypot is a field people never see; anything in it is a bot.
-	Honeypot string `json:"website"`
-	// Token is the widget's per-browser guest token, kept in the iframe's
-	// storage: reply mail needs consent confirmed from this browser
-	// (moderation.md section 6.1).
-	Token string `json:"token"`
+	Site      string `json:"site"`
+	Key       string `json:"key"`
+	URL       string `json:"url"`
+	Title     string `json:"title"`
+	Published string `json:"published"`
+	ParentID  string `json:"parent_id"`
+	Body      string `json:"body"`
+	// Guest is only looked at to tell a guest comment that it is gone.
+	Guest *struct{} `json:"guest"`
 }
 
 // validateBody applies the length and link limits (moderation.md 3.1).
@@ -281,7 +267,7 @@ type decision struct {
 }
 
 // spamRules applies moderation.md section 2, rules 5 to 7, to a body.
-func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, body string, member bool, user *model.User, homepages ...string) (decision, error) {
+func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, body string, user model.User) (decision, error) {
 	ctx := c.Request.Context()
 	if utf8.RuneCountInString(strings.TrimSpace(body)) >= crossSiteMinRunes {
 		n, err := s.Store.SitesWithBody(ctx, site.ID, body)
@@ -297,10 +283,8 @@ func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, bod
 		return decision{}, err
 	}
 	hosts := spam.Hosts(r.HTML)
-	for _, home := range homepages {
-		if u, err := url.Parse(home); err == nil && u.Hostname() != "" {
-			hosts = append(hosts, u.Hostname())
-		}
+	if u, err := url.Parse(user.HomepageURL); err == nil && u.Hostname() != "" {
+		hosts = append(hosts, u.Hostname())
 	}
 	for _, h := range hosts {
 		if spam.DomainListed(h, listed) {
@@ -310,13 +294,10 @@ func (s *Server) spamRules(c *gin.Context, site model.Site, r markup.Result, bod
 	if w, ok := spam.BlockedWord(body, site.BlockedWords); ok {
 		return decision{model.StatusPending, "blocked_word:" + w}, nil
 	}
-	if user != nil && r.Links > 0 && spam.NewAccount(user.CreatedAt, s.Now()) {
+	if r.Links > 0 && spam.NewAccount(user.CreatedAt, s.Now()) {
 		return decision{model.StatusPending, "new_account_link"}, nil
 	}
-	if member && site.MemberPolicy == model.MemberReview {
-		return decision{model.StatusPending, ""}, nil
-	}
-	if !member && site.GuestPolicy == model.GuestReview {
+	if site.MemberPolicy == model.MemberReview {
 		return decision{model.StatusPending, ""}, nil
 	}
 	return decision{model.StatusPublished, ""}, nil
@@ -383,7 +364,11 @@ func (s *Server) postComment(c *gin.Context) {
 		parentID = &id
 	}
 	viewer, signedIn := s.viewerOf(c, site)
-	if !signedIn && in.Guest == nil {
+	if !signedIn && in.Guest != nil {
+		s.guestGone(c)
+		return
+	}
+	if !signedIn {
 		s.fail(c, http.StatusUnauthorized, codeUnauthorized)
 		return
 	}
@@ -416,51 +401,45 @@ func (s *Server) postComment(c *gin.Context) {
 		ThreadTitle: truncate(in.Title, policy.ThreadTitleRunes), PagePublished: published, ParentID: parentID,
 		IPHMAC: s.Keys.IPHMAC(c.ClientIP(), s.Now())}
 	ipKeys := s.Keys.IPHMACs(c.ClientIP(), s.Now())
-	var user *model.User
-	if signedIn {
-		// Rule 2: suspended or banned readers.
-		if viewer.Suspended {
-			s.fail(c, http.StatusForbidden, codeForbidden)
-			return
-		}
-		banned, err := s.Store.Banned(ctx, site.ID, &viewer.UserID, nil, ipKeys)
-		if err != nil {
-			s.storeError(c, err)
-			return
-		}
-		if banned {
-			s.fail(c, http.StatusForbidden, codeForbidden)
-			return
-		}
-		u, err := s.Store.User(ctx, viewer.UserID)
-		if err != nil {
-			s.storeError(c, err)
-			return
-		}
-		user = &u
-		n.AuthorKind, n.AuthorUserID = model.AuthorUser, &viewer.UserID
-		// Rule 4: limits.
-		userKey := strconv.FormatInt(viewer.UserID, 10)
-		if thread == nil {
-			if ok, retry := s.userThreads.allow(userKey); !ok {
-				s.tooMany(c, retry)
-				return
-			}
-		}
-		if ok, retry := s.memberSite.allow(userKey + ":" + site.PublicID); !ok {
+	// Rule 2: suspended or banned readers.
+	if viewer.Suspended {
+		s.fail(c, http.StatusForbidden, codeForbidden)
+		return
+	}
+	banned, err := s.Store.Banned(ctx, site.ID, &viewer.UserID, nil, ipKeys)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	if banned {
+		s.fail(c, http.StatusForbidden, codeForbidden)
+		return
+	}
+	user, err := s.Store.User(ctx, viewer.UserID)
+	if err != nil {
+		s.storeError(c, err)
+		return
+	}
+	n.AuthorKind, n.AuthorUserID = model.AuthorUser, &viewer.UserID
+	// Rule 4: limits.
+	userKey := strconv.FormatInt(viewer.UserID, 10)
+	if thread == nil {
+		if ok, retry := s.userThreads.allow(userKey); !ok {
 			s.tooMany(c, retry)
 			return
 		}
-		if ok, retry := s.memberAll.allow(userKey); !ok {
-			s.tooMany(c, retry)
-			return
-		}
-	} else if !s.guestAuthor(c, site, in, &n, thread == nil, ipKeys) {
+	}
+	if ok, retry := s.memberSite.allow(userKey + ":" + site.PublicID); !ok {
+		s.tooMany(c, retry)
+		return
+	}
+	if ok, retry := s.memberAll.allow(userKey); !ok {
+		s.tooMany(c, retry)
 		return
 	}
 
 	body := strings.TrimSpace(in.Body)
-	dup, err := s.Store.RecentDuplicate(ctx, n.AuthorUserID, n.AuthorEmailHMAC, body)
+	dup, err := s.Store.RecentDuplicate(ctx, viewer.UserID, body)
 	if err != nil {
 		s.storeError(c, err)
 		return
@@ -469,11 +448,7 @@ func (s *Server) postComment(c *gin.Context) {
 		s.fail(c, http.StatusConflict, codeConflict)
 		return
 	}
-	homepage := n.AuthorURL
-	if user != nil {
-		homepage = user.HomepageURL
-	}
-	d, err := s.spamRules(c, site, r, body, signedIn, user, homepage)
+	d, err := s.spamRules(c, site, r, body, user)
 	if err != nil {
 		s.storeError(c, err)
 		return
@@ -489,9 +464,6 @@ func (s *Server) postComment(c *gin.Context) {
 	if err != nil {
 		s.storeError(c, err)
 		return
-	}
-	if !signedIn && in.Guest != nil && in.Guest.Notify && !cm.NotifyEmail {
-		s.requestGuestConsent(c, site, in, cm.ID)
 	}
 	out := s.commentJSON(site, cm, true)
 	// Spam looks like review to its author (moderation.md section 2, rule 5).
@@ -574,7 +546,7 @@ func (s *Server) editComment(c *gin.Context) {
 		return
 	}
 	body := strings.TrimSpace(in.Body)
-	d, err := s.spamRules(c, site, r, body, true, &u, u.HomepageURL)
+	d, err := s.spamRules(c, site, r, body, u)
 	if err != nil {
 		s.storeError(c, err)
 		return

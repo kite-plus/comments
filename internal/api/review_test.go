@@ -51,8 +51,7 @@ func TestSiteCreationLimits(t *testing.T) {
 	session, token := e.consoleLogin("owner")
 	h, c := csrf(token, session)
 	create := func(i int) int {
-		return e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "S", "origin": fmt.Sprintf("https://s%d.example", i),
-			"guest_policy": "off"}, headers: h, cookies: c}).Code
+		return e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "S", "origin": fmt.Sprintf("https://s%d.example", i)}, headers: h, cookies: c}).Code
 	}
 	for i := range policy.SiteCreatesPerUser.Max {
 		if code := create(i); code != http.StatusCreated {

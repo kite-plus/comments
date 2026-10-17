@@ -47,13 +47,10 @@ const (
 // Rate limits (moderation.md section 3.4). Each is a count per window.
 var (
 	NewThreadsPerUser    = Rate{5, time.Hour}
-	NewThreadsPerGuest   = Rate{3, time.Hour}
 	MemberPostsPerSite   = Rate{3, time.Minute}
 	MemberPostsOverall   = Rate{20, 10 * time.Minute}
-	GuestPostsPerIP      = Rate{5, 10 * time.Minute}
 	ReportsPerUser       = Rate{30, 24 * time.Hour}
 	ClaimMailsPerUser    = Rate{3, time.Hour}
-	GuestConfirmsPerDay  = Rate{1, 24 * time.Hour}
 	VerifyPerSite        = Rate{10, time.Hour}
 	ImportUploadsPerSite = Rate{5, 24 * time.Hour}
 	SiteCreatesPerUser   = Rate{5, 24 * time.Hour}
@@ -145,15 +142,4 @@ const (
 	ListPageMax     = 100
 	// around= returns at most this many top-level comments.
 	AroundMax = 200
-)
-
-// Proof of work for guests (moderation.md section 3.2), after ALTCHA: the
-// client searches 0..max for the number the challenge hides. The range
-// doubles for every PowStepPosts guest posts the address made in the last
-// GuestPostsPerIP window, up to PowMaxNumber.
-const (
-	PowTTL        = 10 * time.Minute
-	PowBaseNumber = 100_000
-	PowMaxNumber  = 2_000_000
-	PowStepPosts  = 2
 )

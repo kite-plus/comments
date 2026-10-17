@@ -154,6 +154,16 @@ func plural(n int, one, many string) string {
 
 // Replies is the reply notification (moderation.md section 6.1).
 func Replies(base, locale, to string, items []Item, unsubscribe string) Message {
+	return replies(base, locale, to, items, unsubscribe, "")
+}
+
+// GuestReplies is reply mail to a guest address that confirmed it before
+// guest comments ended; it also says how to claim the comments.
+func GuestReplies(base, locale, to string, items []Item, unsubscribe, claimURL string) Message {
+	return replies(base, locale, to, items, unsubscribe, claimURL)
+}
+
+func replies(base, locale, to string, items []Item, unsubscribe, claimURL string) Message {
 	m := Message{To: to, Unsubscribe: unsubscribe}
 	site := items[0].SiteName
 	v := view{
@@ -192,6 +202,10 @@ func Replies(base, locale, to string, items []Item, unsubscribe string) Message 
 			}
 			v.Cards = append(v.Cards, c)
 		}
+	}
+	if claimURL != "" {
+		v.More = pick(locale, "Kite Plus 评论已不再接受访客评论。用 Kite Plus 账号登录，在读者中心认领用这个邮箱留下的评论，以后的回复都在那里："+claimURL,
+			"Kite Plus Comments no longer takes guest comments. Sign in with a Kite Plus account and claim the comments left with this address in the reader center to follow replies there: "+claimURL)
 	}
 	finish(&m, base, locale, v)
 	return m

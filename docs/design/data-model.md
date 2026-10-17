@@ -1,6 +1,6 @@
 # 数据模型
 
-> 状态：已落地为 `migrations/` 下的迁移（`00001_init.sql`，2026-10 安全审查后的修正在 `00002_review_fixes.sql`），表结构以迁移文件为准，本文同步更新 · 最近更新：2026-10-11
+> 状态：已落地为 `migrations/` 下的迁移（`00001_init.sql`，2026-10 安全审查后的修正在 `00002_review_fixes.sql`），表结构以迁移文件为准，本文同步更新 · 最近更新：2026-10-16
 > 原则见 [architecture.md §0](architecture.md#0-两个核心判断)。本文把它落到 PostgreSQL 上。迁移文件另有一些只为查询加的索引，这里不一一列出。
 
 ---
@@ -241,7 +241,8 @@ CREATE TABLE site_verifications (
 |---|---|
 | `status` | `unverified` 没有任何已验证的 origin；`pending_review` 已验证、等平台批准（只在 C2 内测期存在）；`active` 至少有一个已验证的 origin，可以嵌入；`suspended` 被平台暂停，或所有者已不在；`deleted` 所有者删除后的恢复窗口（§4）。各状态下组件显示什么见 [widget.md §4](widget.md#4-iframe-地址) |
 | `suspended_at` | 平台暂停的标记，和 `status` 分开存：所有者删除再恢复一个被暂停的站点，它恢复成 `suspended`，`status_note` 保留，暂停不会因此解除（[sites.md §4](sites.md#4-站点设置与讨论页管理)）。只有平台解除暂停时清空 |
-| `guest_policy`、`member_policy` | 含义见 [moderation.md §2](moderation.md#2-发布规则)。访客评论的默认值 `off` 只是兜底：C3 起新建站点时由博主明确选择（[sites.md §4](sites.md#4-站点设置与讨论页管理)） |
+| `member_policy` | 含义见 [moderation.md §2](moderation.md#2-发布规则) |
+| `guest_policy` | 访客评论 2026-10-16 取消（[moderation.md §3.2](moderation.md#32-访客)），这一列不再读写，留到以后的迁移删除 |
 | `query_keys` | 计入讨论页标识的查询参数，比如 WordPress 朴素链接的 `p`（[widget.md §5](widget.md#5-讨论页标识)） |
 | `allow_localhost` | 允许在 `http://localhost:*`、`http://127.0.0.1:*` 上显示只读的组件，方便博主本地预览主题（[widget.md §4](widget.md#4-iframe-地址)） |
 | `site_origins` | 一个 origin（`https://host[:port]`）只能被一个站点**验证**，**每个都要单独验证**。没验证的登记不独占：几个站点可以同时登记同一个 origin，谁先通过验证谁得到它，其他站点再验证时失败、也不能再登记它；否则别人可以先登记你的域名占着不验证，让你注册不了。从未验证的登记在验证令牌的有效期（7 天）后由清理任务删除（§4）。只接受 https：约束允许 `http://`，只是为了本地开发服务器（`COMMENTS_DEV_HTTP_ORIGINS`），生产服务在应用层拒绝 http（[sites.md §2](sites.md#2-注册与验证)）。`last_checked_at`、`failing_since` 用于定期复查 |
@@ -464,6 +465,7 @@ CREATE INDEX outbox_coalesce ON outbox (coalesce_key) WHERE status = 'queued';
 
 - `notifications` 只给登录读者，是读者中心里的通知。访客没有读者中心，回复通知只有邮件。
 - `thread_mutes` 是登录读者在某个讨论页关闭的通知；访客只能按邮箱整体退订（`guest_emails.opted_out_at`）。
+- 访客评论 2026-10-16 取消（[moderation.md §3.2](moderation.md#32-访客)）：`guest_emails`、`guest_consents` 不再新增，留着给已经确认过的访客发回复邮件、让已发出的确认链接在 30 天内还能确认（[moderation.md §6.1](moderation.md#61-读者)）。
 - `guest_emails.locale` 是这个访客最近一次留言时组件的语言，确认信和回复通知按它发（[moderation.md §6.1](moderation.md#61-读者)）。
 - 访客的回复通知要按**浏览器**确认（[moderation.md §6.1](moderation.md#61-读者)）：组件在 iframe 的存储里给每个浏览器生成一个访客令牌，`guest_consents.browser_hash` 是它的哈希。访客勾选「有人回复时通知我」时，只有这个邮箱在这个浏览器上确认过，这条评论才直接开通知；否则发一封确认信，确认后这个浏览器记为已同意，这条评论（`comment_id`）开通知。这样拿别人的邮箱留言，换一个浏览器也只能让对方收到一封确认信，收不到回复通知。`guest_emails.confirm_sent_at` 限制每个邮箱一天最多一封确认信，`confirmed_at` 记这个邮箱第一次确认的时间，`opted_out_at` 是整体退订，退订时删掉它的全部同意。
 - `email_claims` 只能由发起它的账号完成验证，验证和确认都要这个账号的控制台会话（[sites.md §6](sites.md#6-认领历史评论)）。一个认领只能确认一次（`confirmed_at`），只认领验证（`verified_at`）之前用这个邮箱留下的访客评论；之后再用这个邮箱留的访客评论仍是访客的。
@@ -507,7 +509,7 @@ CREATE TABLE pow_spent (
 
 - `imports.file` 是解析后的评论（JSON），访客邮箱已经加密成密文和 HMAC；上传的原始文件解析完就丢弃，从不落库。`file` 在上传 24 小时后置空（§4），只留统计；`mapping` 是博主在预览时加的地址改写规则（[sites.md §7](sites.md#7-导入)）。
 - `idp_events` 只记录从事件查询（对账）里读到并处理过的事件 ID，同一个事件只处理一次。推送只是提示，不记 ID：推送里的事件 ID 是推送方自己写的，记下来的话，一条伪造的推送就能抢先占住真事件的 ID，让对账跳过它；`idp_sync` 只有一行，是每小时对账的游标（[login.md §7](login.md#7-账号删除与停用)）。
-- `pow_spent` 记录已用过的访客工作量证明，防止同一个解重复提交（[moderation.md §3.2](moderation.md#32-访客)）。
+- `pow_spent` 原来记录已用过的访客工作量证明，防止同一个解重复提交；访客评论取消后不再写入（[moderation.md §3.2](moderation.md#32-访客)），清理任务照旧删掉过期的行，表留到以后的迁移删除。
 
 ---
 

@@ -135,7 +135,6 @@ func (s *Server) threadDocument(c *gin.Context) {
 	if err == nil {
 		data["site"] = site.PublicID
 		data["origins"] = nonNil(site.VerifiedOrigins())
-		data["guest_policy"] = site.GuestPolicy
 		data["sort"] = site.SortOrder
 		if site.Status == model.SiteActive || site.Status == model.SiteSuspended {
 			page := s.resolvePage(site, c.Query("url"), c.Query("key"))

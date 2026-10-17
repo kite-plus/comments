@@ -1,6 +1,6 @@
 # Kite Plus 评论 总体设计
 
-> 状态：C2 的代码已完成并在本地对着身份服务的开发栈跑通（[roadmap.md §4](roadmap.md#4-c2-评论内测)）；未上线；部署在与 Explore 同机的服务器上（§5、§9，本机演练过）；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-11
+> 状态：C2 的代码已完成并在本地对着身份服务的开发栈跑通（[roadmap.md §4](roadmap.md#4-c2-评论内测)）；未上线；部署在与 Explore 同机的服务器上（§5、§9，本机演练过）；§5 的合规结论上线前需找懂行的人确认 · 最近更新：2026-10-16
 > 文档约定沿用 [Kite 设计文档](https://github.com/kite-plus/kite/blob/main/docs/design/README.md)：正文中文，专有名词保留英文；`[设计中]` 表示实现前还可调整，`[待定]` 表示明确推迟决策；`[EV]` 表示结论有实测或既有项目佐证。
 > 与本文冲突的实现，先改文档，再改代码。
 > 本文是总体设计；登录、组件、数据模型、接口、审核、站点接入和路线图各有专门的文档，索引见 [README.md](README.md)。
@@ -163,7 +163,7 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 | 速度 | 快 | 香港到国内约 20–60 ms；美国到国内通常在 130 ms 以上；晚高峰都取决于线路 |
 | 封锁 | 不会 | 有可能，而且没有预警 |
 
-**结论**：对一个人维护的开源项目，境内运营的准入条件和持续义务（公司主体、评论者实名、审核团队、半年日志）都不现实；访客评论这个迁移时的关键功能也做不了。境外运营的代价是跨境延迟和被封锁的风险，在 §11 处理。
+**结论**：对一个人维护的开源项目，境内运营的准入条件和持续义务（公司主体、评论者实名、审核团队、半年日志）都不现实；访客评论这个迁移时的关键功能也做不了（后来本服务自己也取消了访客评论，[moderation.md §3.2](moderation.md#32-访客)）。境外运营的代价是跨境延迟和被封锁的风险，在 §11 处理。
 
 **境外运营仍要面对的**：
 
@@ -173,7 +173,7 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 - **上线前必备**：中英文的隐私政策和服务条款，举报渠道 `abuse@kite.plus`。
 - **博主自己的备案**：一些省份的个人备案本来就不允许网站有评论等交互功能。接不接入由博主自己判断，接入文档里提醒一句。
 
-**如果将来转为境内运营**（比如成立了公司），要做的是：公司主体的 ICP 备案和公安备案、安全评估；身份服务加手机号验证；全平台关闭访客评论；网络日志保存 6 个月；账号页显示 IP 属地。这些都只需要新增代码和配置，不需要改已有接口，所以现在不做。
+**如果将来转为境内运营**（比如成立了公司），要做的是：公司主体的 ICP 备案和公安备案、安全评估；身份服务加手机号验证；网络日志保存 6 个月；账号页显示 IP 属地。这些都只需要新增代码和配置，不需要改已有接口，所以现在不做。
 
 ---
 
@@ -202,7 +202,6 @@ Kite Plus 评论面向所有博客系统，**不是 Kite 的附属品**。Kite �
 | 数据库 | PostgreSQL 16 | 同上 |
 | OIDC 客户端 | `coreos/go-oidc` v3、`golang.org/x/oauth2` | 成熟，只做客户端 |
 | Markdown 与净化 | goldmark、bluemonday | [moderation.md §5](moderation.md#5-内容格式) |
-| 访客验证 | 工作量证明，协议参考 ALTCHA | 自托管，不发第三方请求 |
 | 发信 | SMTP，经 `outbox` 由 worker 发送 | [moderation.md §6.3](moderation.md#63-发信) |
 | 组件界面 | Preact、TypeScript、Vite | 体积预算（[widget.md §10](widget.md#10-加载体积与降级)） |
 | 读者中心、站点控制台 | React 19、Tailwind v4、shadcn/ui、TanStack Query | 与 Explore 后台相同，组件和经验可以复用 |
@@ -229,7 +228,6 @@ comments/
 │   ├── markup/     Markdown 渲染与净化，唯一产出 HTML 的包
 │   ├── importer/   各导入格式的解析和导入计划
 │   ├── spam/       反垃圾规则
-│   ├── pow/        工作量证明
 │   ├── crypt/      邮箱加密与 HMAC、IP 密钥派生、令牌和签名
 │   ├── oidc/       OIDC 客户端，ID Token 与 Logout Token 校验；oidctest 是测试用的假身份服务
 │   ├── idp/        身份服务的用户事件：推送签名、事件查询、按用户当前状态处理
@@ -255,7 +253,7 @@ comments/
 
 **依赖规则**（`scripts/check-imports.sh`，在 `make check` 里跑）：
 
-- `policy`、`model`、`pagekey`、`markup`、`importer`、`spam`、`pow`、`crypt` 是纯逻辑包，不引用 I/O 层（`store`、`api`、`worker`、`cli`、`config`、`oidc`、`verify`、`mailer`、`idp`）、gin、pgx、`net/http` 和 `database/sql`。
+- `policy`、`model`、`pagekey`、`markup`、`importer`、`spam`、`crypt` 是纯逻辑包，不引用 I/O 层（`store`、`api`、`worker`、`cli`、`config`、`oidc`、`verify`、`mailer`、`idp`）、gin、pgx、`net/http` 和 `database/sql`。
 - 只有 `api` 引用 gin，只有 `store`（含 `storetest`）引用 pgx，只有 `markup` 引用 goldmark 和 bluemonday。
 - `api` 和 `worker` 互不引用，只在数据库里相遇；两边共用的逻辑放在 `idp`、`mailer` 这样的包里。
 
@@ -308,7 +306,7 @@ comments/
 | C0 技术验证 | 跨站登录实测；身份服务选型 |
 | C1 身份服务 | 已拆成单独的项目，先于评论服务进行，见 [identity 路线图](https://github.com/kite-plus/identity/blob/main/docs/design/roadmap.md) 的 I0–I3 |
 | C2 评论内测 | 登录读者、受邀站点、Kite 评论插件支持 |
-| C3 开放接入 | 访客评论、导入、认领、开放注册 |
+| C3 开放接入 | 导入、认领、开放注册 |
 | C4 生态 | 各系统插件、Kite 后台集成、FedCM 等 |
 
 范围、用例和退出条件见 [roadmap.md](roadmap.md)。

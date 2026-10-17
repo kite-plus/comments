@@ -32,7 +32,7 @@ func (s *Server) siteJSON(x model.Site, role string) gin.H {
 	}
 	return gin.H{
 		"id": x.PublicID, "name": x.Name, "status": x.Status, "status_note": x.StatusNote, "role": role,
-		"guest_policy": x.GuestPolicy, "member_policy": x.MemberPolicy, "sort_order": x.SortOrder,
+		"member_policy": x.MemberPolicy, "sort_order": x.SortOrder,
 		"close_after_days": x.CloseAfterDays, "query_keys": x.QueryKeys, "allow_localhost": x.AllowLocalhost,
 		"owner_notify": x.OwnerNotify, "blocked_words": x.BlockedWords, "origins": origins,
 		"created_at": x.CreatedAt.UTC(), "verified_at": timeOrNil(x.VerifiedAt), "approved_at": timeOrNil(x.ApprovedAt),
@@ -102,22 +102,19 @@ func (s *Server) listSites(c *gin.Context) {
 	private(c, http.StatusOK, gin.H{"data": data})
 }
 
-// createSite is POST /api/v1/sites. The guest policy must be chosen
-// (sites.md section 4).
+// createSite is POST /api/v1/sites.
 func (s *Server) createSite(c *gin.Context) {
 	var in struct {
-		Name        string   `json:"name"`
-		Origin      string   `json:"origin"`
-		Aliases     []string `json:"aliases"`
-		GuestPolicy string   `json:"guest_policy"`
+		Name    string   `json:"name"`
+		Origin  string   `json:"origin"`
+		Aliases []string `json:"aliases"`
 	}
 	if !s.bindJSON(c, &in) {
 		return
 	}
 	name := strings.TrimSpace(in.Name)
 	primary, ok := s.siteOrigin(in.Origin)
-	if !ok || name == "" || utf8.RuneCountInString(name) > policy.SiteNameRunes || len(in.Aliases) > policy.AliasOrigins ||
-		!slices.Contains([]string{model.GuestOff, model.GuestReview, model.GuestPublish}, in.GuestPolicy) {
+	if !ok || name == "" || utf8.RuneCountInString(name) > policy.SiteNameRunes || len(in.Aliases) > policy.AliasOrigins {
 		s.fail(c, http.StatusBadRequest, codeInvalidRequest)
 		return
 	}
@@ -151,12 +148,6 @@ func (s *Server) createSite(c *gin.Context) {
 		s.storeError(c, err)
 		return
 	}
-	if in.GuestPolicy != model.GuestOff {
-		if site, err = s.Store.UpdateSite(c.Request.Context(), site.ID, store.SiteSettings{GuestPolicy: &in.GuestPolicy}); err != nil {
-			s.storeError(c, err)
-			return
-		}
-	}
 	private(c, http.StatusCreated, s.siteJSON(site, model.RoleOwner))
 }
 
@@ -171,7 +162,6 @@ var queryKeyRE = regexp.MustCompile(`^[A-Za-z0-9_.\-\[\]]{1,50}$`)
 func (s *Server) updateSite(c *gin.Context) {
 	var in struct {
 		Name           *string   `json:"name"`
-		GuestPolicy    *string   `json:"guest_policy"`
 		MemberPolicy   *string   `json:"member_policy"`
 		SortOrder      *string   `json:"sort_order"`
 		CloseAfterDays *int      `json:"close_after_days"`
@@ -184,16 +174,13 @@ func (s *Server) updateSite(c *gin.Context) {
 	if !s.bindJSON(c, &in) {
 		return
 	}
-	p := store.SiteSettings{Name: in.Name, GuestPolicy: in.GuestPolicy, MemberPolicy: in.MemberPolicy, SortOrder: in.SortOrder,
+	p := store.SiteSettings{Name: in.Name, MemberPolicy: in.MemberPolicy, SortOrder: in.SortOrder,
 		AllowLocalhost: in.AllowLocalhost, OwnerNotify: in.OwnerNotify}
 	bad := false
 	if in.Name != nil {
 		n := strings.TrimSpace(*in.Name)
 		bad = bad || n == "" || utf8.RuneCountInString(n) > policy.SiteNameRunes
 		p.Name = &n
-	}
-	if in.GuestPolicy != nil {
-		bad = bad || !slices.Contains([]string{model.GuestOff, model.GuestReview, model.GuestPublish}, *in.GuestPolicy)
 	}
 	if in.MemberPolicy != nil {
 		bad = bad || !slices.Contains([]string{model.MemberPublish, model.MemberReview}, *in.MemberPolicy)

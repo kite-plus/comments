@@ -98,7 +98,6 @@ export function createDb(now = Date.now()): Db {
   const baseSite = {
     status_note: null,
     role: 'owner' as const,
-    guest_policy: 'off' as const,
     member_policy: 'publish' as const,
     sort_order: 'oldest' as const,
     close_after_days: null,

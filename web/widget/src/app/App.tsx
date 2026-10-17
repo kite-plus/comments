@@ -16,7 +16,6 @@ export interface Data {
   mode: "normal" | "preview" | "foreign" | "closed" | "inactive";
   origins: string[];
   site?: string;
-  guest_policy?: string;
   sort?: string;
   key?: string;
   url?: string;
@@ -588,7 +587,7 @@ function Composer({ ctx, viewer, onDone, onSignOut, parent, onCancel }: {
     setErr("");
     try {
       const r = await call<Comment>("POST", "/api/v1/comments", {
-        site: d.site, key: d.key, url: d.url, title: d.title, published: d.published, parent_id: parent?.id, body, lang: d.lang,
+        site: d.site, key: d.key, url: d.url, title: d.title, published: d.published, parent_id: parent?.id, body,
       });
       setBody("");
       onDone(r.body);

@@ -383,7 +383,6 @@ const routes: [string, string, Handler][] = [
       status: 'unverified',
       status_note: null,
       role: 'owner',
-      guest_policy: 'off',
       member_policy: 'publish',
       sort_order: 'oldest',
       close_after_days: null,
@@ -421,8 +420,6 @@ const routes: [string, string, Handler][] = [
     if (patch.clear_close_after_days) patch.close_after_days = null
     if (patch.name !== undefined && (!patch.name.trim() || patch.name.length > 100))
       fail(400, 'invalid_request', '站点名称需要 1 到 100 个字符。', 'Site names are 1 to 100 characters.')
-    if (patch.guest_policy && patch.guest_policy !== 'off')
-      fail(400, 'invalid_request', '内测期间不接受访客评论。', 'Guest comments are off during the beta.')
     if (patch.close_after_days !== undefined && patch.close_after_days !== null &&
       (patch.close_after_days < 1 || patch.close_after_days > 3650))
       fail(400, 'invalid_request', '自动关闭的天数要在 1 到 3650 之间。', 'Auto-close days must be between 1 and 3650.')
@@ -430,7 +427,7 @@ const routes: [string, string, Handler][] = [
       fail(400, 'invalid_request', '屏蔽词最多 200 个。', 'At most 200 blocked words.')
     if (patch.query_keys && patch.query_keys.length > 5)
       fail(400, 'invalid_request', '查询参数最多 5 个。', 'At most 5 query parameters.')
-    const allowed = ['name', 'guest_policy', 'member_policy', 'sort_order', 'close_after_days', 'query_keys', 'allow_localhost', 'owner_notify', 'blocked_words'] as const
+    const allowed = ['name', 'member_policy', 'sort_order', 'close_after_days', 'query_keys', 'allow_localhost', 'owner_notify', 'blocked_words'] as const
     for (const key of allowed) if (key in patch) (site as Record<string, unknown>)[key] = patch[key]
     site.updated_at = isoNow()
     return json(publicSite(site))

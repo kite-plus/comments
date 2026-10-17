@@ -26,13 +26,12 @@ const (
 	codeCommentTooLong     = "comment_too_long"
 	codeTooManyLinks       = "too_many_links"
 	codeOriginNotAllowed   = "origin_not_allowed"
-	codePowInvalid         = "pow_invalid"
 	codeUnauthorized       = "unauthorized"
 	codeForbidden          = "forbidden"
 	codeSiteInactive       = "site_inactive"
 	codeThreadLocked       = "thread_locked"
 	codeEditWindowClosed   = "edit_window_closed"
-	codeGuestNotAllowed    = "guest_not_allowed"
+	codeGuestCommentsGone  = "guest_comments_gone"
 	codeNotFound           = "not_found"
 	codeConflict           = "conflict"
 	codeSoleOwner          = "sole_owner"
@@ -49,13 +48,12 @@ var messages = map[string]struct{ en, zh string }{
 	codeCommentTooLong:     {"The comment is too long.", "评论太长了。"},
 	codeTooManyLinks:       {"The comment has too many links.", "评论里的链接太多了。"},
 	codeOriginNotAllowed:   {"This page does not belong to the site.", "此页面不属于这个站点。"},
-	codePowInvalid:         {"The check did not pass; try again.", "验证没有通过，请重试。"},
 	codeUnauthorized:       {"Sign in first.", "请先登录。"},
 	codeForbidden:          {"You cannot do this here.", "你无法在此执行这个操作。"},
 	codeSiteInactive:       {"Comments are unavailable on this site.", "这个站点的评论暂不可用。"},
 	codeThreadLocked:       {"Comments are closed.", "评论已关闭。"},
 	codeEditWindowClosed:   {"This comment can no longer be edited.", "这条评论已经过了可以编辑的时间。"},
-	codeGuestNotAllowed:    {"This site does not take guest comments.", "这个站点不接受访客评论。"},
+	codeGuestCommentsGone:  {"Guest comments are no longer taken; sign in with a Kite Plus account to comment.", "已不再接受访客评论，请用 Kite Plus 账号登录后发表。"},
 	codeNotFound:           {"Not found.", "没有找到。"},
 	codeConflict:           {"This conflicts with existing data.", "与已有的数据冲突。"},
 	codeSoleOwner:          {"You are the only owner of a site. Delete the site first.", "你是某个站点唯一的所有者，请先删除这个站点。"},

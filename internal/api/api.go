@@ -52,20 +52,18 @@ type Server struct {
 	issuerOrg string
 	assets    *widgetAssets
 
-	anonReads    *limiter
-	loginStarts  *limiter
-	redeems      *limiter
-	memberSite   *limiter
-	memberAll    *limiter
-	guestPosts   *limiter
-	userThreads  *limiter
-	guestThreads *limiter
-	reports      *limiter
-	verifies     *limiter
-	uploads      *limiter
-	siteCreates  *limiter
-	claims       *limiter
-	writes       *limiter
+	anonReads   *limiter
+	loginStarts *limiter
+	redeems     *limiter
+	memberSite  *limiter
+	memberAll   *limiter
+	userThreads *limiter
+	reports     *limiter
+	verifies    *limiter
+	uploads     *limiter
+	siteCreates *limiter
+	claims      *limiter
+	writes      *limiter
 
 	spamMu      sync.Mutex
 	spamDomains map[string]bool
@@ -92,9 +90,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	s.redeems = newLimiter(policy.RedeemsPerIP, s.Now)
 	s.memberSite = newLimiter(policy.MemberPostsPerSite, s.Now)
 	s.memberAll = newLimiter(policy.MemberPostsOverall, s.Now)
-	s.guestPosts = newLimiter(policy.GuestPostsPerIP, s.Now)
 	s.userThreads = newLimiter(policy.NewThreadsPerUser, s.Now)
-	s.guestThreads = newLimiter(policy.NewThreadsPerGuest, s.Now)
 	s.reports = newLimiter(policy.ReportsPerUser, s.Now)
 	s.verifies = newLimiter(policy.VerifyPerSite, s.Now)
 	s.uploads = newLimiter(policy.ImportUploadsPerSite, s.Now)
@@ -168,7 +164,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	w.POST("/comments/:id/moderation", s.limit(s.writes), s.moderateComment)
 	w.PUT("/threads/lock", s.limit(s.writes), s.lockThread)
 	w.POST("/preview", s.limit(s.writes), s.preview)
-	w.GET("/pow/challenge", s.limit(s.writes), s.powChallenge)
+	w.GET("/pow/challenge", s.guestGone)
 
 	// Reader center (api.md section 6).
 	me := r.Group("/api/v1/me", s.consoleUser(false))

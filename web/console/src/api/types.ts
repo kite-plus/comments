@@ -24,13 +24,12 @@ export const ERROR_CODES = [
   'comment_too_long',
   'too_many_links',
   'origin_not_allowed',
-  'pow_invalid',
   'unauthorized',
   'forbidden',
   'site_inactive',
   'thread_locked',
   'edit_window_closed',
-  'guest_not_allowed',
+  'guest_comments_gone',
   'not_found',
   'conflict',
   'sole_owner',
@@ -165,7 +164,6 @@ export type ClaimResult = { claimed: number }
 
 export type SiteStatus = 'unverified' | 'pending_review' | 'active' | 'suspended' | 'deleted'
 export type SiteRole = 'owner' | 'moderator'
-export type GuestPolicy = 'off' | 'review' | 'publish'
 export type MemberPolicy = 'publish' | 'review'
 export type SortOrder = 'oldest' | 'newest'
 export type OwnerNotify = 'instant' | 'daily' | 'off'
@@ -202,7 +200,6 @@ export type Site = {
   status: SiteStatus
   status_note: string | null
   role: SiteRole
-  guest_policy: GuestPolicy
   member_policy: MemberPolicy
   sort_order: SortOrder
   close_after_days: number | null
@@ -226,8 +223,6 @@ export type SiteCreate = {
   name: string
   origin: string
   aliases: string[]
-  /** C3: chosen explicitly at creation; C2 always sends "off". */
-  guest_policy: GuestPolicy
 }
 
 /** Assumed: the create response may carry the first token (sites.md 2 step 3). */
@@ -237,7 +232,6 @@ export type SitePatch = Partial<
   Pick<
     Site,
     | 'name'
-    | 'guest_policy'
     | 'member_policy'
     | 'sort_order'
     | 'close_after_days'

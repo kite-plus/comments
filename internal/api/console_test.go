@@ -124,22 +124,19 @@ func TestSiteRegistrationAndVerification(t *testing.T) {
 	defer blog.Close()
 	session, csrfToken := e.consoleLogin("owner")
 	h, c := csrf(csrfToken, session)
-	if w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Mine", "origin": blog.URL}, headers: h, cookies: c}); w.Code != http.StatusBadRequest {
-		t.Errorf("site without a guest policy = %d", w.Code)
-	}
-	w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Mine", "origin": blog.URL, "guest_policy": "review"}, headers: h, cookies: c})
+	w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Mine", "origin": blog.URL}, headers: h, cookies: c})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create site = %d %s", w.Code, w.Body)
 	}
 	site := decode(t, w)
 	id := site["id"].(string)
-	if site["status"] != "unverified" || site["guest_policy"] != "review" || site["role"] != "owner" {
+	if _, ok := site["guest_policy"]; ok || site["status"] != "unverified" || site["role"] != "owner" {
 		t.Errorf("new site = %v", site)
 	}
 	// Another account may claim the origin until one of them verifies it.
 	session2, csrf2 := e.consoleLogin("squatter")
 	h2, c2 := csrf(csrf2, session2)
-	w = e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Again", "origin": blog.URL, "guest_policy": "off"}, headers: h2, cookies: c2})
+	w = e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Again", "origin": blog.URL}, headers: h2, cookies: c2})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("unverified origin blocked a second site = %d %s", w.Code, w.Body)
 	}
@@ -165,7 +162,7 @@ func TestSiteRegistrationAndVerification(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "已被另一个站点验证") {
 		t.Errorf("second verification of an origin = %d %s", w.Code, w.Body)
 	}
-	if w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Third", "origin": blog.URL, "guest_policy": "off"}, headers: h2, cookies: c2}); w.Code != http.StatusConflict {
+	if w := e.do(req{method: "POST", path: "/api/v1/sites", body: map[string]any{"name": "Third", "origin": blog.URL}, headers: h2, cookies: c2}); w.Code != http.StatusConflict {
 		t.Errorf("site on a verified origin = %d", w.Code)
 	}
 	// The platform approves; only a platform admin may.
@@ -434,7 +431,6 @@ func TestEmailsNeverStoredInPlainText(t *testing.T) {
 	e := newEnv(t)
 	token, _ := e.popupLogin("ann", e.site)
 	e.post(token, e.site, "hello", nil)
-	_, _ = e.st.UpdateSite(t.Context(), e.site.ID, store.SiteSettings{GuestPolicy: new(model.GuestPublish)})
 	session, csrfToken := e.consoleLogin("bob")
 	// An import keeps its parsed comments for a day; their addresses too
 	// must be encrypted.

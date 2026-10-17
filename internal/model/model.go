@@ -41,9 +41,6 @@ const (
 
 // Policies.
 const (
-	GuestOff      = "off"
-	GuestReview   = "review"
-	GuestPublish  = "publish"
 	MemberPublish = "publish"
 	MemberReview  = "review"
 	SortOldest    = "oldest"
@@ -66,7 +63,6 @@ type Site struct {
 	Name           string
 	Status         string
 	StatusNote     string
-	GuestPolicy    string
 	MemberPolicy   string
 	SortOrder      string
 	CloseAfterDays *int

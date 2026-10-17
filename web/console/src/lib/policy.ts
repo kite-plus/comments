@@ -14,12 +14,8 @@ export const POLICY = {
   publishedFutureHours: 24,
 } as const
 
-/**
- * Stages of the roadmap the console cares about. C2 has no guest comments,
- * imports or claims; flip these when the server ships them.
- */
+/** Stages of the roadmap the console cares about; flip these when the server ships them. */
 export const FEATURES = {
-  guests: false,
   claims: true,
 } as const
 

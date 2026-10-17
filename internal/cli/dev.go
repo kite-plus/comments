@@ -33,17 +33,13 @@ func newDevCmd() *cobra.Command {
 			}
 			a, _ := cmd.Flags().GetString("blog-a")
 			b, _ := cmd.Flags().GetString("blog-b")
-			for _, x := range []struct{ id, name, origin, guests string }{
-				{devblogs.SiteA, "Blog A (dev)", a, model.GuestOff},
-				{devblogs.SiteB, "Blog B (dev)", b, model.GuestPublish},
+			for _, x := range []struct{ id, name, origin string }{
+				{devblogs.SiteA, "Blog A (dev)", a},
+				{devblogs.SiteB, "Blog B (dev)", b},
 			} {
 				site, err := st.Site(cmd.Context(), x.id)
 				if errors.Is(err, store.ErrNotFound) {
 					site, err = st.CreateSite(cmd.Context(), store.NewSite{Name: x.name, Origins: []string{x.origin}, Verified: true, PublicID: x.id})
-					if err == nil {
-						guests := x.guests
-						site, err = st.UpdateSite(cmd.Context(), site.ID, store.SiteSettings{GuestPolicy: &guests})
-					}
 				}
 				if err != nil {
 					return err

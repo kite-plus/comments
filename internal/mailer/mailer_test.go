@@ -103,3 +103,15 @@ func TestMuteToken(t *testing.T) {
 		t.Errorf("ParseMute = %d, %d, %v", uid, tid, err)
 	}
 }
+
+func TestGuestRepliesPointToClaims(t *testing.T) {
+	items := []Item{{SiteName: "Blog", Permalink: "https://b.example/p#kc-1", Author: "Ann", Excerpt: "hi"}}
+	claims := "https://comments.example/me/claims"
+	m := GuestReplies("https://comments.example", "en", "g@example.com", items, "https://c.example/unsubscribe?t=y", claims)
+	if !strings.Contains(m.Text, claims) || !strings.Contains(m.HTML, claims) {
+		t.Errorf("guest reply mail without the claim link:\n%s", m.Text)
+	}
+	if strings.Contains(Replies("https://comments.example", "en", "r@example.com", items, "").Text, claims) {
+		t.Error("reader reply mail points to claims")
+	}
+}

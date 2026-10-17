@@ -23,7 +23,7 @@ reaches() {
 }
 
 # 1. Pure packages do no I/O: no outer layers, no web framework, no driver.
-for pure in internal/policy internal/model internal/pagekey internal/markup internal/importer internal/spam internal/pow internal/crypt; do
+for pure in internal/policy internal/model internal/pagekey internal/markup internal/importer internal/spam internal/crypt; do
     [ -d "$pure" ] || continue
     d=$(deps "$pure")
     for bad in store api worker cli config oidc verify mailer idp; do

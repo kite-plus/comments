@@ -48,7 +48,6 @@ export const en: Catalog = {
   'validation.httpsOnly': 'Only https:// addresses are accepted.',
   'validation.originFormat': 'Enter an origin such as https://blog.example.com, without a path.',
   'validation.duplicate': 'This duplicates another address.',
-  'validation.choose': 'Choose one.',
 
   'lang.label': 'Language',
   'lang.name': 'English',
@@ -305,8 +304,6 @@ export const en: Catalog = {
   'newSite.aliasLabel': 'Alias {n}',
   'newSite.addAlias': 'Add alias',
   'newSite.removeAlias': 'Remove alias {n}',
-  'newSite.guestsC2': 'During the beta only signed-in readers can comment; guest comments are off.',
-  'newSite.guestsChoose': 'Choose whether to accept guest comments; there is no default.',
   'newSite.submit': 'Register and verify',
   'newSite.created': 'Site registered',
 
@@ -569,11 +566,6 @@ export const en: Catalog = {
   'settings.desc': 'Only the site owner can change these.',
   'settings.general': 'General',
   'settings.commenting': 'Comments',
-  'settings.guestPolicy': 'Guest comments',
-  'settings.guest.off': 'Off',
-  'settings.guest.review': 'Moderate first',
-  'settings.guest.publish': 'Publish directly',
-  'settings.guestC2': 'Off during the beta.',
   'settings.memberPolicy': 'Comments from signed-in readers',
   'settings.member.publish': 'Publish directly',
   'settings.member.review': 'Moderate first',
