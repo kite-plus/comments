@@ -55,7 +55,7 @@ func (s *Server) viewerOf(c *gin.Context, site model.Site) (model.Viewer, bool) 
 }
 
 func (s *Server) viewerJSON(site model.Site, v model.Viewer) gin.H {
-	avatar := "/avatars/generated/" + v.AuthorID + ".svg"
+	avatar := generatedURL(v.AuthorID, v.DisplayName)
 	if v.HasAvatar {
 		avatar = "/avatars/" + v.AuthorID + "?v=" + url.QueryEscape(v.AvatarTag)
 	}

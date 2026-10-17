@@ -44,7 +44,7 @@
 }
 ```
 
-- `author.id` 是这位读者在**这个站点**的作者 ID，换一个站点就不同。`author.kind` 为 `guest`、`external` 时没有 `id`；`former_user` 时 `name` 是空串，由界面显示「已注销用户」。`avatar` 是本站的相对地址：读者选了身份服务的头像时是 `/avatars/<作者 ID>?v=<版本>`，否则是 `/avatars/generated/<种子>.svg`（访客的种子按站点和邮箱 HMAC 算，各站不同）。邮箱永远不出现在组件接口里。
+- `author.id` 是这位读者在**这个站点**的作者 ID，换一个站点就不同。`author.kind` 为 `guest`、`external` 时没有 `id`；`former_user` 时 `name` 是空串，由界面显示「已注销用户」。`avatar` 是本站的相对地址：读者选了身份服务的头像时是 `/avatars/<作者 ID>?v=<版本>`，否则是 `/avatars/generated/<种子>.svg?c=<昵称首字>`（访客的种子按站点和邮箱 HMAC 算，各站不同）：一枚微微倾斜的印章，墨色按种子从 12 种里挑，印上昵称的第一个字母或数字（字母转大写），没有时印 Kite Plus 标记。`c` 总是带着，旧的像素图缓存一年，换了地址才不会继续显示。邮箱永远不出现在组件接口里。
 - `badge` 只在作者是本站所有者（`owner`）或协管员（`moderator`）时出现。
 - `reply_to` 只在回复的不是所在顶层评论时出现：`{"id", "name"}`。
 - `status` 只在管理者看到的响应和作者自己发表、编辑的响应里出现；公开响应只含 `published` 的评论，所以省略这个字段。作者看到的「垃圾」显示为 `pending`（[moderation.md §2](moderation.md#2-发布规则)）。
@@ -83,7 +83,7 @@
 | GET | `/api/v1/threads/comments` | 参数 `site`、`key`（讨论页标识，即 iframe 文档里内联的 `key`）、`sort`（`oldest`、`newest`，省略时用站点设置）、`cursor`、`limit`；或用 `around=<评论 ID>` 取包含这条评论的那一页 |
 | GET | `/api/v1/comments/{id}/replies` | 某条顶层评论的其余回复，按时间正序分页；第一页用评论对象的 `replies_cursor` |
 | GET | `/avatars/{作者 ID}` | 缓存的头像，带与 ETag 相同的 `?v=` 时长期缓存 |
-| GET | `/avatars/generated/{种子}.svg` | 生成的头像 |
+| GET | `/avatars/generated/{种子}.svg?c={首字}` | 生成的头像（印章字） |
 
 `GET /api/v1/threads/comments` 的响应：
 

@@ -32,7 +32,7 @@ func (s *Server) meJSON(c *gin.Context, u model.User) (gin.H, error) {
 	for _, x := range sites {
 		mine = append(mine, gin.H{"id": x.PublicID, "name": x.Name, "role": x.Role, "status": x.Status})
 	}
-	avatar := "/avatars/generated/" + shortHash("me:"+u.PublicID) + ".svg"
+	avatar := generatedURL(shortHash("me:"+u.PublicID), u.DisplayName)
 	if u.AvatarKind == "idp" && u.HasAvatar {
 		avatar = "/api/v1/me/avatar"
 	}

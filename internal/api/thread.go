@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html"
 	"net/http"
 	"net/url"
@@ -345,7 +344,11 @@ func avatarURL(site model.Site, cm model.Comment) string {
 	default:
 		seed = shortHash(site.PublicID + ":n:" + cm.AuthorName + ":" + strconv.FormatInt(cm.ID, 10))
 	}
-	return "/avatars/generated/" + seed + ".svg"
+	name := cm.AuthorName
+	if cm.AuthorKind == model.AuthorFormerUser {
+		name = ""
+	}
+	return generatedURL(seed, name)
 }
 
 func shortHash(s string) string {
@@ -455,7 +458,7 @@ func (s *Server) avatar(c *gin.Context) {
 			return
 		}
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
-		c.Data(http.StatusOK, "image/svg+xml", generatedAvatar(seed))
+		c.Data(http.StatusOK, "image/svg+xml", generatedAvatar(seed, initialOf(c.Query("c"))))
 		return
 	}
 	a, err := s.Store.AvatarByAuthor(c.Request.Context(), p)
@@ -474,27 +477,6 @@ func (s *Server) avatar(c *gin.Context) {
 
 func isHexOrDash(r rune) bool {
 	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || r == '-'
-}
-
-// generatedAvatar draws a symmetric 5x5 pattern in one hue from the seed.
-func generatedAvatar(seed string) []byte {
-	sum := sha256.Sum256([]byte(seed))
-	hue := int(sum[0])<<8 | int(sum[1])
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5 5" width="96" height="96" shape-rendering="crispEdges">`)
-	fmt.Fprintf(&b, `<rect width="5" height="5" fill="hsl(%d,45%%,92%%)"/>`, hue%360)
-	for y := range 5 {
-		for x := range 3 {
-			if sum[2+y*3+x]&1 == 1 {
-				fmt.Fprintf(&b, `<rect x="%d" y="%d" width="1" height="1" fill="hsl(%d,55%%,48%%)"/>`, x, y, hue%360)
-				if x < 2 {
-					fmt.Fprintf(&b, `<rect x="%d" y="%d" width="1" height="1" fill="hsl(%d,55%%,48%%)"/>`, 4-x, y, hue%360)
-				}
-			}
-		}
-	}
-	b.WriteString(`</svg>`)
-	return []byte(b.String())
 }
 
 func truncate(s string, n int) string {
